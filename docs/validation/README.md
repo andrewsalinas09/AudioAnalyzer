@@ -12,7 +12,7 @@ the numbers obtained, and the acceptance criterion.
 | --- | --- | --- | --- |
 | 001 | Level computation (RMS/peak/dBFS) | Analytic (full-scale sine = −3.01 dBFS RMS) | ✅ host test `dsp/tests/levels_test.cpp` |
 | 002 | Calibration parsing | Real vendor files (UMIK-2, OmniMic V2, iMM-6C) | ✅ unit tests `core:calibration` |
-| 003 | Clock-drift measurement | Long-run stability + cross-check vs a second device | planned (Phase 0 hardware pass) |
+| 003 | Engine instrumentation on hardware | S25 Ultra, built-in mic + iMM-6C ([report](003-audio-health-hardware-pass.md)) | ✅ 2026-08-19 (absolute drift cross-check → 008) |
 | 004 | A/C/Z weighting filters | IEC 61672-1 tolerance tables | planned (Phase 1) |
 | 005 | SPL absolute level | 94 dB calibrator / reference SLM | planned (Phase 1) |
 | 006 | FFT magnitude & PSD normalization | Analytic sine + synthetic white noise | planned (Phase 2) |
