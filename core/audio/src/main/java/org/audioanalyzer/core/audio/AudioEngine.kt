@@ -103,6 +103,22 @@ class AudioEngine {
     fun irMag(magOut: FloatArray, gdOut: FloatArray): Int =
         NativeEngine.nativeIrMag(magOut, gdOut)
 
+    /** Copies the (averaged) IR into [out]; returns the sample count. */
+    fun irGet(out: FloatArray): Int = NativeEngine.nativeIrGet(out)
+
+    /** Renders the measurement sweep offline (for WAV export). */
+    fun renderSweep(
+        exponential: Boolean,
+        f1: Double,
+        f2: Double,
+        durationSec: Double,
+        levelDb: Double,
+        syncFrame: Boolean,
+        sampleRate: Double = 48000.0,
+    ): FloatArray = NativeEngine.nativeRenderSweep(
+        exponential, f1, f2, durationSec, levelDb, syncFrame, sampleRate,
+    )
+
     /**
      * Polls current engine state. Each call also collects one hardware
      * timestamp, so poll at a steady cadence (~10 Hz) for the clock-drift

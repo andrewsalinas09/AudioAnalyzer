@@ -501,6 +501,14 @@ int32_t AudioEngine::irEtc(float* out, int32_t n) {
     return n;
 }
 
+int32_t AudioEngine::irGet(float* out, int32_t maxN) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto n = static_cast<int32_t>(ir_.size());
+    if (n == 0 || n > maxN) return 0;
+    std::copy(ir_.begin(), ir_.end(), out);
+    return n;
+}
+
 int32_t AudioEngine::irMag(float* magDb, float* gdMs, int32_t maxBins) {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto nb = static_cast<int32_t>(irMagDb_.size());

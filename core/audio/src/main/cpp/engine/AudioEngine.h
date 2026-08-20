@@ -143,6 +143,8 @@ public:
     // Fills magnitude (dB, uncalibrated) and excess group delay (ms) of the
     // windowed IR; returns the bin count.
     int32_t irMag(float* magDb, float* gdMs, int32_t maxBins);
+    // Copies the (averaged) IR samples; returns the count (0 if none/too big).
+    int32_t irGet(float* out, int32_t maxN);
 
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream* stream,
                                           void* audioData,

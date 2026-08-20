@@ -2,7 +2,12 @@
 // mechanical: no logic beyond marshalling.
 #include <jni.h>
 
+#include <cmath>
+#include <vector>
+
 #include "AudioEngine.h"
+#include "generator.h"
+#include "syncframe.h"
 
 extern "C" {
 
@@ -162,6 +167,42 @@ Java_org_audioanalyzer_core_audio_NativeEngine_nativeIrEtc(
     const jint n = aa::AudioEngine::instance().irEtc(buf, len);
     env->ReleaseFloatArrayElements(out, buf, n > 0 ? 0 : JNI_ABORT);
     return n;
+}
+
+JNIEXPORT jint JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeIrGet(
+    JNIEnv* env, jobject /*thiz*/, jfloatArray out) {
+    const jsize len = env->GetArrayLength(out);
+    jfloat* buf = env->GetFloatArrayElements(out, nullptr);
+    const jint n = aa::AudioEngine::instance().irGet(buf, len);
+    env->ReleaseFloatArrayElements(out, buf, n > 0 ? 0 : JNI_ABORT);
+    return n;
+}
+
+// Renders the measurement sweep (optionally sync-framed) offline for WAV
+// export, so any external player can act as the emitter for a listening
+// device. Pure DSP; no engine state involved.
+JNIEXPORT jfloatArray JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeRenderSweep(
+    JNIEnv* env, jobject /*thiz*/, jboolean exponential, jdouble f1,
+    jdouble f2, jdouble durationSec, jdouble levelDb, jboolean syncFrame,
+    jdouble sampleRate) {
+    const double amp = std::pow(10.0, levelDb / 20.0);
+    std::vector<float> payload =
+        exponential == JNI_TRUE
+            ? aa::dsp::renderExpSweep(sampleRate, f1, f2, durationSec, amp)
+            : aa::dsp::renderLinSweep(sampleRate, f1, f2, durationSec, amp);
+    std::vector<float> signal =
+        syncFrame == JNI_TRUE
+            ? aa::dsp::wrapWithSyncFrame(payload, sampleRate,
+                                         aa::dsp::SyncFrameSpec{}, amp)
+            : std::move(payload);
+    jfloatArray out = env->NewFloatArray(static_cast<jsize>(signal.size()));
+    if (out != nullptr) {
+        env->SetFloatArrayRegion(out, 0, static_cast<jsize>(signal.size()),
+                                 signal.data());
+    }
+    return out;
 }
 
 JNIEXPORT jint JNICALL

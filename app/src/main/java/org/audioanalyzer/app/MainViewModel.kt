@@ -581,10 +581,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Writes [content] to a user-picked document (Save-to-Files flow). */
-    fun writeCsvTo(uri: android.net.Uri, content: String) {
+    fun writeCsvTo(uri: android.net.Uri, content: String) = writeBytesTo(uri, content.toByteArray())
+
+    fun writeBytesTo(uri: android.net.Uri, bytes: ByteArray) {
         getApplication<Application>().contentResolver.openOutputStream(uri)?.use {
-            it.write(content.toByteArray())
+            it.write(bytes)
         }
+    }
+
+    /**
+     * The sync-framed measurement sweep as a playable 16-bit/48 kHz WAV —
+     * play it from ANY device (PC, AVR, second phone) while this or another
+     * phone runs "Listen only" with matching band/duration settings.
+     */
+    fun buildSweepWav(): ByteArray {
+        val s = _state.value
+        val samples = engine.renderSweep(
+            exponential = true,
+            f1 = s.irSweepF1,
+            f2 = s.irSweepF2,
+            durationSec = s.irSweepDurSec,
+            levelDb = s.genLevelDb,
+            syncFrame = true,
+            sampleRate = 48000.0,
+        )
+        return WavWriter.pcm16(samples, 48000)
+    }
+
+    /** The measured (averaged) IR as a 32-bit float WAV, or null if none. */
+    fun buildIrWav(): ByteArray? {
+        val res = _state.value.irResult ?: return null
+        if (res.irSamples == 0) return null
+        val buf = FloatArray(res.irSamples)
+        val n = engine.irGet(buf)
+        if (n == 0) return null
+        return WavWriter.float32(if (n == buf.size) buf else buf.copyOf(n), res.fs.toInt())
     }
 
     fun exportLogCsv(): android.net.Uri = shareableCsv("spl_log", buildLogCsv())

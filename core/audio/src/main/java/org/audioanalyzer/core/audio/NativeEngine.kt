@@ -65,4 +65,16 @@ internal object NativeEngine {
     external fun nativeIrEtc(out: FloatArray): Int
 
     external fun nativeIrMag(magOut: FloatArray, gdOut: FloatArray): Int
+
+    external fun nativeIrGet(out: FloatArray): Int
+
+    external fun nativeRenderSweep(
+        exponential: Boolean,
+        f1: Double,
+        f2: Double,
+        durationSec: Double,
+        levelDb: Double,
+        syncFrame: Boolean,
+        sampleRate: Double,
+    ): FloatArray
 }

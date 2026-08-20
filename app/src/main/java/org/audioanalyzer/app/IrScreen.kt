@@ -113,10 +113,31 @@ fun IrScreen(viewModel: MainViewModel) {
                 "a complete one-device measurement.\n" +
                 "Listen only: this phone just records for a while; play a " +
                 "sync-framed Sweep (log) with the SAME band and duration from " +
-                "another device's Gen tab. The chirp markers align and " +
-                "drift-correct the capture automatically.",
+                "another device's Gen tab — or the exported sweep WAV from any " +
+                "player. The chirp markers align and drift-correct the capture.",
             style = MaterialTheme.typography.bodySmall,
         )
+
+        var pendingWav by remember { mutableStateOf<ByteArray?>(null) }
+        val wavLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.CreateDocument("audio/wav"),
+        ) { uri ->
+            val bytes = pendingWav
+            if (uri != null && bytes != null) viewModel.writeBytesTo(uri, bytes)
+            pendingWav = null
+        }
+        OutlinedButton(
+            onClick = {
+                pendingWav = viewModel.buildSweepWav()
+                wavLauncher.launch(
+                    "sync_sweep_%d-%d_%ds.wav".format(
+                        state.irSweepF1.toInt(), state.irSweepF2.toInt(),
+                        state.irSweepDurSec.toInt(),
+                    ),
+                )
+            },
+            enabled = !busy,
+        ) { Text("Save sweep WAV (for external playback)") }
         if (busy) {
             LinearProgressIndicator(
                 progress = { state.irProgress },
@@ -185,6 +206,12 @@ fun IrScreen(viewModel: MainViewModel) {
                         saveLauncher.launch("ir_response.csv")
                     }
                 }) { Text("Save CSV") }
+                OutlinedButton(onClick = {
+                    viewModel.buildIrWav()?.let { bytes ->
+                        pendingWav = bytes
+                        wavLauncher.launch("impulse_response.wav")
+                    }
+                }) { Text("Save IR WAV") }
             }
 
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
