@@ -55,7 +55,18 @@ data class MainUiState(
     val genSweepDurSec: Double = 5.0,
     val genSyncFrame: Boolean = true,
     val genErrorCode: Int? = null,
+    // IR measurement.
+    val irSweepF1: Double = 20.0,
+    val irSweepF2: Double = 20000.0,
+    val irSweepDurSec: Double = 5.0,
+    val irPhase: IrPhase = IrPhase.IDLE,
+    val irProgress: Float = 0f,
+    val irError: String? = null,
+    val irResult: org.audioanalyzer.core.audio.IrSummary? = null,
+    val irVersion: Long = 0,
 )
+
+enum class IrPhase { IDLE, MEASURING, ANALYZING, DONE, FAILED }
 
 /** One SPL log sample. Levels stay in weighted dBFS so a calibration change
  *  re-maps the whole history consistently at display time. */
@@ -275,6 +286,101 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setGenSyncFrame(on: Boolean) = _state.update { it.copy(genSyncFrame = on) }
 
     fun selectGenOutput(id: Int) = _state.update { it.copy(genOutputDeviceId = id) }
+
+    // --- IR measurement ---
+
+    /** ETC (dB) and magnitude/GD traces; read after observing irVersion. */
+    val irEtc = FloatArray(2048)
+    var irEtcValid = false; private set
+    val irMagDb = FloatArray(16384 / 2 + 1)
+    val irGdMs = FloatArray(16384 / 2 + 1)
+    var irMagBins = 0; private set
+
+    fun setIrSweep(
+        f1: Double = _state.value.irSweepF1,
+        f2: Double = _state.value.irSweepF2,
+        durSec: Double = _state.value.irSweepDurSec,
+    ) = _state.update { it.copy(irSweepF1 = f1, irSweepF2 = f2, irSweepDurSec = durSec) }
+
+    fun startIrMeasurement() {
+        val s = _state.value
+        if (s.irPhase == IrPhase.MEASURING || s.irPhase == IrPhase.ANALYZING) return
+        if (!s.running) {
+            start()
+            if (!_state.value.running) {
+                _state.update { it.copy(irPhase = IrPhase.FAILED, irError = "input stream failed") }
+                return
+            }
+        }
+        // Frame: chirp + guard + sweep + guard + chirp; capture adds start
+        // slack and a reverb tail.
+        val frameSec = 0.1 + 0.25 + s.irSweepDurSec + 0.25 + 0.1
+        val captureSec = 1.0 + frameSec + 1.5
+        if (engine.irBeginCapture(captureSec) != 0) {
+            _state.update { it.copy(irPhase = IrPhase.FAILED, irError = "capture failed to start") }
+            return
+        }
+        val rc = engine.startSweep(
+            deviceId = s.genOutputDeviceId,
+            exponential = true,
+            f1 = s.irSweepF1,
+            f2 = s.irSweepF2,
+            durationSec = s.irSweepDurSec,
+            levelDb = s.genLevelDb,
+            syncFrame = true,
+        )
+        if (rc != 0) {
+            engine.irAbort()
+            _state.update { it.copy(irPhase = IrPhase.FAILED, irError = "output failed (oboe $rc)") }
+            return
+        }
+        _state.update { it.copy(irPhase = IrPhase.MEASURING, irError = null, irProgress = 0f) }
+
+        viewModelScope.launch {
+            // Wait for the capture to fill.
+            while (isActive && engine.irState() == org.audioanalyzer.core.audio.IrState.CAPTURING) {
+                _state.update {
+                    it.copy(irProgress = (engine.irCapturedSec() / captureSec).toFloat())
+                }
+                delay(100)
+            }
+            if (engine.irState() != org.audioanalyzer.core.audio.IrState.CAPTURED) {
+                _state.update { it.copy(irPhase = IrPhase.FAILED, irError = "capture interrupted") }
+                return@launch
+            }
+            _state.update { it.copy(irPhase = IrPhase.ANALYZING, irProgress = 1f) }
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                engine.irAnalyze(_state.value.irSweepF1, _state.value.irSweepF2,
+                    _state.value.irSweepDurSec)
+            }
+            if (result != 0) {
+                _state.update {
+                    it.copy(
+                        irPhase = IrPhase.FAILED,
+                        irError = if (result == -1) {
+                            "sync frame not detected — increase level or reduce distance"
+                        } else "analysis failed ($result)",
+                    )
+                }
+                return@launch
+            }
+            irEtcValid = engine.irEtc(irEtc) > 0
+            irMagBins = engine.irMag(irMagDb, irGdMs)
+            _state.update {
+                it.copy(
+                    irPhase = IrPhase.DONE,
+                    irResult = engine.irSummary(),
+                    irVersion = it.irVersion + 1,
+                )
+            }
+        }
+    }
+
+    fun abortIrMeasurement() {
+        engine.irAbort()
+        engine.stopGenerator()
+        _state.update { it.copy(irPhase = IrPhase.IDLE, irProgress = 0f) }
+    }
 
     // --- Calibration ---
 

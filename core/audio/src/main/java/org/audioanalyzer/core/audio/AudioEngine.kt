@@ -75,6 +75,31 @@ class AudioEngine {
 
     fun stopGenerator() = NativeEngine.nativeGenStop()
 
+    // --- IR measurement (see AudioEngine.h for the flow) ---
+
+    fun irBeginCapture(seconds: Double): Int = NativeEngine.nativeIrBeginCapture(seconds)
+
+    fun irAbort() = NativeEngine.nativeIrAbort()
+
+    fun irState(): IrState = IrState.from(NativeEngine.nativeIrState())
+
+    fun irCapturedSec(): Double = NativeEngine.nativeIrCapturedSec()
+
+    /** Heavy: run on a worker dispatcher. */
+    fun irAnalyze(f1: Double, f2: Double, durationSec: Double): Int =
+        NativeEngine.nativeIrAnalyze(f1, f2, durationSec)
+
+    fun irSummary(): IrSummary {
+        val a = DoubleArray(IrSummary.SIZE)
+        NativeEngine.nativeIrSummary(a)
+        return IrSummary.fromArray(a)
+    }
+
+    fun irEtc(out: FloatArray): Int = NativeEngine.nativeIrEtc(out)
+
+    fun irMag(magOut: FloatArray, gdOut: FloatArray): Int =
+        NativeEngine.nativeIrMag(magOut, gdOut)
+
     /**
      * Polls current engine state. Each call also collects one hardware
      * timestamp, so poll at a steady cadence (~10 Hz) for the clock-drift

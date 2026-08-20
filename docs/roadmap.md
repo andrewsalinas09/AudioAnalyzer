@@ -69,7 +69,17 @@ Original scope:
   spec frozen (v1) when this ships.
 - Loopback round-trip latency test (validates detection + timing end to end).
 
-## Phase 4 — Impulse response
+## Phase 4 — Impulse response — core ✅ (2026-08-19)
+
+Done: regularized deconvolution, FFT-based sync detection + drift-correcting
+resample, ETC, Schroeder RT60 (EDT/T20/T30), C50/C80, windowed magnitude +
+excess group delay — all verified against a synthetic room (entry 007). IR
+tab: one-tap measure (capture + sync-framed sweep, full duplex), results
+card, ETC/magnitude/group-delay plots.
+Open: IR export (WAV), mag/GD smoothing + cursor, octave-band RT60, CSD
+waterfall, REW cross-check (entry 009), two-device measurement UX.
+
+Original scope:
 
 - Farina exponential-sweep deconvolution → IR.
 - Preamble/postamble drift correction (multi-device across the room).

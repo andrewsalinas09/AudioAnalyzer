@@ -29,4 +29,13 @@ void RealFft::forward(const float* in, float* out) {
     std::memcpy(out, alignedOut_, sizeof(float) * static_cast<std::size_t>(n_));
 }
 
+void RealFft::inverse(const float* in, float* out) {
+    std::memcpy(alignedIn_, in, sizeof(float) * static_cast<std::size_t>(n_));
+    pffft_transform_ordered(setup_, alignedIn_, alignedOut_, work_,
+                            PFFFT_BACKWARD);
+    // PFFFT's backward transform is unscaled.
+    const float scale = 1.0f / static_cast<float>(n_);
+    for (int i = 0; i < n_; ++i) out[i] = alignedOut_[i] * scale;
+}
+
 }  // namespace aa::dsp

@@ -107,4 +107,69 @@ Java_org_audioanalyzer_core_audio_NativeEngine_nativeGenStop(
     aa::AudioEngine::instance().genStop();
 }
 
+JNIEXPORT jint JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeIrBeginCapture(
+    JNIEnv* /*env*/, jobject /*thiz*/, jdouble seconds) {
+    return aa::AudioEngine::instance().irBeginCapture(seconds);
+}
+
+JNIEXPORT void JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeIrAbort(JNIEnv* /*env*/,
+                                                             jobject /*thiz*/) {
+    aa::AudioEngine::instance().irAbort();
+}
+
+JNIEXPORT jint JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeIrState(
+    JNIEnv* /*env*/, jobject /*thiz*/) {
+    return aa::AudioEngine::instance().irState();
+}
+
+JNIEXPORT jdouble JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeIrCapturedSec(
+    JNIEnv* /*env*/, jobject /*thiz*/) {
+    return aa::AudioEngine::instance().irCapturedSec();
+}
+
+JNIEXPORT jint JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeIrAnalyze(
+    JNIEnv* /*env*/, jobject /*thiz*/, jdouble f1, jdouble f2,
+    jdouble durationSec) {
+    return aa::AudioEngine::instance().irAnalyze(f1, f2, durationSec);
+}
+
+JNIEXPORT void JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeIrSummary(
+    JNIEnv* env, jobject /*thiz*/, jdoubleArray out) {
+    const jsize len = env->GetArrayLength(out);
+    if (len < aa::AudioEngine::kIrSummarySize) return;
+    double buf[aa::AudioEngine::kIrSummarySize];
+    aa::AudioEngine::instance().irSummary(buf, aa::AudioEngine::kIrSummarySize);
+    env->SetDoubleArrayRegion(out, 0, aa::AudioEngine::kIrSummarySize, buf);
+}
+
+JNIEXPORT jint JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeIrEtc(
+    JNIEnv* env, jobject /*thiz*/, jfloatArray out) {
+    const jsize len = env->GetArrayLength(out);
+    jfloat* buf = env->GetFloatArrayElements(out, nullptr);
+    const jint n = aa::AudioEngine::instance().irEtc(buf, len);
+    env->ReleaseFloatArrayElements(out, buf, n > 0 ? 0 : JNI_ABORT);
+    return n;
+}
+
+JNIEXPORT jint JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeIrMag(
+    JNIEnv* env, jobject /*thiz*/, jfloatArray magOut, jfloatArray gdOut) {
+    const jsize magLen = env->GetArrayLength(magOut);
+    const jsize gdLen = env->GetArrayLength(gdOut);
+    const jsize maxBins = magLen < gdLen ? magLen : gdLen;
+    jfloat* mag = env->GetFloatArrayElements(magOut, nullptr);
+    jfloat* gd = env->GetFloatArrayElements(gdOut, nullptr);
+    const jint n = aa::AudioEngine::instance().irMag(mag, gd, maxBins);
+    env->ReleaseFloatArrayElements(magOut, mag, n > 0 ? 0 : JNI_ABORT);
+    env->ReleaseFloatArrayElements(gdOut, gd, n > 0 ? 0 : JNI_ABORT);
+    return n;
+}
+
 }  // extern "C"

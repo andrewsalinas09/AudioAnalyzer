@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val tabs = listOf("SPL", "RTA", "Gen", "Log", "Health", "Cal")
+private val tabs = listOf("SPL", "RTA", "IR", "Gen", "Log", "Health", "Cal")
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -82,9 +82,10 @@ private fun AppRoot() {
             when (tab) {
                 0 -> SplScreen(viewModel)
                 1 -> RtaScreen(viewModel)
-                2 -> GenScreen(viewModel)
-                3 -> LogScreen(viewModel)
-                4 -> AudioHealthScreen(viewModel)
+                2 -> IrScreen(viewModel)
+                3 -> GenScreen(viewModel)
+                4 -> LogScreen(viewModel)
+                5 -> AudioHealthScreen(viewModel)
                 else -> CalibrationScreen(viewModel)
             }
         }

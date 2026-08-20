@@ -8,6 +8,7 @@
 #include <cmath>
 #include <limits>
 
+#include "deconvolve.h"
 #include "levels.h"
 #include "syncframe.h"
 
@@ -340,6 +341,141 @@ void AudioEngine::OutputCallback::onErrorAfterClose(
     owner_->outMode_.store(0);
 }
 
+// --- IR measurement ---
+
+int32_t AudioEngine::irBeginCapture(double seconds) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!running_.load() || !stream_) return -2;
+    irCapture_.clear();
+    irCaptureTarget_ = static_cast<std::size_t>(seconds * sampleRateNominal_);
+    irCapture_.reserve(irCaptureTarget_);
+    irCaptureFs_ = sampleRateNominal_;
+    irState_.store(1);
+    irCapturing_.store(true);
+    return 0;
+}
+
+void AudioEngine::irAbort() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    irCapturing_.store(false);
+    irState_.store(0);
+    irCapture_.clear();
+}
+
+double AudioEngine::irCapturedSec() const {
+    // irCapture_.size() written under mutex_, read racily for progress only.
+    return static_cast<double>(irCapture_.size()) / irCaptureFs_;
+}
+
+int32_t AudioEngine::irAnalyze(double f1, double f2, double durationSec) {
+    std::vector<float> cap;
+    double fs;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (irState_.load() != 2) return -2;
+        cap = std::move(irCapture_);
+        irCapture_.clear();
+        fs = irCaptureFs_;
+        irState_.store(3);
+    }
+
+    // Heavy pipeline without holding the engine lock (audio keeps running).
+    const auto reference = dsp::renderExpSweep(fs, f1, f2, durationSec, 1.0);
+    const dsp::SyncFrameSpec spec;
+    const auto det = dsp::detectSyncFrameFft(cap, fs, spec, reference.size());
+    if (!det.found) {
+        ALOGW("ir: sync frame not found (peaks %.2f/%.2f)", det.preamblePeak,
+              det.postamblePeak);
+        irState_.store(-1);
+        return -1;
+    }
+
+    const double ppm = (det.clockRatio - 1.0) * 1e6;
+    const std::vector<float>& corrected =
+        std::fabs(ppm) > 5.0 ? dsp::resampleLinear(cap, det.clockRatio) : cap;
+    const double preCorrected = det.preambleStart / det.clockRatio;
+
+    const double lead = 0.05;  // shown before the direct sound
+    const double tail = 1.5;   // room decay after the sweep
+    const auto payloadStart = static_cast<std::size_t>(
+        preCorrected + static_cast<double>(spec.chirpSamples(fs)) +
+        static_cast<double>(spec.guardSamples(fs)));
+    const auto leadN = static_cast<std::size_t>(lead * fs);
+    const std::size_t from = payloadStart > leadN ? payloadStart - leadN : 0;
+    const std::size_t to =
+        std::min(corrected.size(),
+                 payloadStart + reference.size() +
+                     static_cast<std::size_t>(tail * fs));
+    if (to <= from + reference.size() / 2) {
+        irState_.store(-1);
+        return -1;
+    }
+    const std::vector<float> segment(corrected.begin() + static_cast<long>(from),
+                                     corrected.begin() + static_cast<long>(to));
+    auto ir = dsp::deconvolve(
+        segment, reference,
+        leadN + static_cast<std::size_t>((tail + 0.2) * fs));
+    auto metrics = dsp::analyzeIr(ir, fs);
+
+    constexpr int kMagFft = 16384;
+    std::vector<float> magDb(kMagFft / 2 + 1), gdMs(kMagFft / 2 + 1);
+    dsp::irFrequencyResponse(ir, fs, kMagFft, 0.005, 0.5, magDb.data(),
+                             gdMs.data());
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ir_ = std::move(ir);
+        irMetrics_ = metrics;
+        irMagDb_ = std::move(magDb);
+        irGdMs_ = std::move(gdMs);
+        irMagBinHz_ = fs / kMagFft;
+        irDriftPpm_ = ppm;
+        irPreQ_ = det.preamblePeak;
+        irPostQ_ = det.postamblePeak;
+        irCaptureFs_ = fs;
+        irState_.store(4);
+    }
+    ALOGI("ir: done, peak %.0f, T20 %.3f s, drift %.1f ppm", metrics.peakSample,
+          metrics.t20Sec, ppm);
+    return 0;
+}
+
+void AudioEngine::irSummary(double* out, std::size_t n) {
+    if (n < kIrSummarySize) return;
+    std::lock_guard<std::mutex> lock(mutex_);
+    out[0] = irCaptureFs_;
+    out[1] = static_cast<double>(irCapture_.size()) / irCaptureFs_;
+    out[2] = irMetrics_.peakSample;
+    out[3] = irMetrics_.peakDb;
+    out[4] = irMetrics_.edtSec;
+    out[5] = irMetrics_.t20Sec;
+    out[6] = irMetrics_.t30Sec;
+    out[7] = irMetrics_.c50Db;
+    out[8] = irMetrics_.c80Db;
+    out[9] = irDriftPpm_;
+    out[10] = irPreQ_;
+    out[11] = irPostQ_;
+    out[12] = static_cast<double>(ir_.size());
+    out[13] = static_cast<double>(irMagDb_.size());
+    out[14] = irMagBinHz_;
+}
+
+int32_t AudioEngine::irEtc(float* out, int32_t n) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (ir_.empty() || n <= 0) return 0;
+    dsp::etcTrace(ir_, out, static_cast<std::size_t>(n));
+    return n;
+}
+
+int32_t AudioEngine::irMag(float* magDb, float* gdMs, int32_t maxBins) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto nb = static_cast<int32_t>(irMagDb_.size());
+    if (nb == 0 || nb > maxBins) return 0;
+    std::copy(irMagDb_.begin(), irMagDb_.end(), magDb);
+    std::copy(irGdMs_.begin(), irGdMs_.end(), gdMs);
+    return nb;
+}
+
 void AudioEngine::stop() {
     std::lock_guard<std::mutex> lock(mutex_);
     running_.store(false);
@@ -378,6 +514,18 @@ void AudioEngine::drainAndProcessLocked() {
     const std::size_t frames = drained / static_cast<std::size_t>(channelCount_);
     spl_.process(scratch_.data(), frames, channelCount_, 0);
     spectrum_.feed(scratch_.data(), frames, channelCount_, 0);
+    if (irCapturing_.load(std::memory_order_relaxed)) {
+        const std::size_t room = irCaptureTarget_ - irCapture_.size();
+        const std::size_t take = std::min(room, frames);
+        for (std::size_t i = 0; i < take; ++i) {
+            irCapture_.push_back(
+                scratch_[i * static_cast<std::size_t>(channelCount_)]);
+        }
+        if (irCapture_.size() >= irCaptureTarget_) {
+            irCapturing_.store(false);
+            irState_.store(2);
+        }
+    }
     const int chToMeasure = channelCount_ > 2 ? 2 : channelCount_;
     for (int ch = 0; ch < chToMeasure; ++ch) {
         const auto lv = dsp::computeLevels(scratch_.data(), frames,

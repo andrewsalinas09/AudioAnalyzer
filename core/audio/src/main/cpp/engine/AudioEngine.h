@@ -10,6 +10,7 @@
 #include "CallbackStats.h"
 #include "SpscRing.h"
 #include "generator.h"
+#include "ir_analysis.h"
 #include "spectrum.h"
 #include "spl.h"
 
@@ -115,6 +116,30 @@ public:
     void genSetTone(double freqHz, double levelDb);
     void genStop();
 
+    // --- IR measurement ---
+    // Capture states: 0 idle, 1 capturing, 2 captured, 3 analyzing, 4 done,
+    // -1 sync not found, -2 invalid state/params.
+    // Flow: input stream running -> irBeginCapture -> play sync-framed sweep
+    // (genStartSweep) -> wait for state 2 -> irAnalyze on a worker thread ->
+    // state 4 -> read results.
+    int32_t irBeginCapture(double seconds);
+    void irAbort();
+    int32_t irState() const { return irState_.load(); }
+    double irCapturedSec() const;
+    // f1/f2/durationSec must match the played sweep.
+    int32_t irAnalyze(double f1, double f2, double durationSec);
+    // Summary layout (doubles): 0 fs, 1 capturedSec, 2 peakSample, 3 peakDb,
+    // 4 edtSec, 5 t20Sec, 6 t30Sec, 7 c50Db, 8 c80Db, 9 driftPpm,
+    // 10 preambleQuality, 11 postambleQuality, 12 irSamples, 13 magBins,
+    // 14 magBinHz. Mirrored by IrSummary in Kotlin.
+    static constexpr int kIrSummarySize = 15;
+    void irSummary(double* out, std::size_t n);
+    // Fills out[n] with the decimated ETC in dB (0 = IR start).
+    int32_t irEtc(float* out, int32_t n);
+    // Fills magnitude (dB, uncalibrated) and excess group delay (ms) of the
+    // windowed IR; returns the bin count.
+    int32_t irMag(float* magDb, float* gdMs, int32_t maxBins);
+
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream* stream,
                                           void* audioData,
                                           int32_t numFrames) override;
@@ -175,6 +200,20 @@ private:
 
     int32_t openOutputLocked(int32_t deviceId);  // caller holds mutex_
     void genStopLocked();
+
+    // --- IR measurement state ---
+    std::vector<float> irCapture_;      // appended by drainAndProcessLocked
+    std::size_t irCaptureTarget_ = 0;
+    double irCaptureFs_ = 48000.0;
+    std::atomic<bool> irCapturing_{false};
+    std::atomic<int32_t> irState_{0};
+    std::vector<float> ir_;             // deconvolved impulse response
+    dsp::IrMetrics irMetrics_{};
+    std::vector<float> irMagDb_;
+    std::vector<float> irGdMs_;
+    double irMagBinHz_ = 0.0;
+    double irDriftPpm_ = 0.0;
+    double irPreQ_ = 0.0, irPostQ_ = 0.0;
 
     OutputCallback outCallback_{this};
     std::shared_ptr<oboe::AudioStream> outStream_;

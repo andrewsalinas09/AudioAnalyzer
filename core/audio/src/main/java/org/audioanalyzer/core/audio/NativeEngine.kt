@@ -47,4 +47,20 @@ internal object NativeEngine {
     external fun nativeGenSetTone(freqHz: Double, levelDb: Double)
 
     external fun nativeGenStop()
+
+    external fun nativeIrBeginCapture(seconds: Double): Int
+
+    external fun nativeIrAbort()
+
+    external fun nativeIrState(): Int
+
+    external fun nativeIrCapturedSec(): Double
+
+    external fun nativeIrAnalyze(f1: Double, f2: Double, durationSec: Double): Int
+
+    external fun nativeIrSummary(out: DoubleArray)
+
+    external fun nativeIrEtc(out: FloatArray): Int
+
+    external fun nativeIrMag(magOut: FloatArray, gdOut: FloatArray): Int
 }

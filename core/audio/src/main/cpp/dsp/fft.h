@@ -27,6 +27,10 @@ public:
     // Neither needs special alignment (copied through aligned scratch).
     void forward(const float* in, float* out);
 
+    // Inverse of forward(): in is the ordered spectrum, out is n time-domain
+    // samples. Scaled so inverse(forward(x)) == x.
+    void inverse(const float* in, float* out);
+
 private:
     int n_;
     PFFFT_Setup* setup_;
