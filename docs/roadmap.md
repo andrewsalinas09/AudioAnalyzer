@@ -53,7 +53,15 @@ Original scope:
   Canvas per ADR-0005.
 - Spectrogram/waterfall.
 
-## Phase 3 — Signal generator + sync frame
+## Phase 3 — Signal generator + sync frame — largely ✅ (2026-08-19)
+
+Done: output engine (RT-safe synth callback + pre-rendered one-shots), sine /
+white / pink / exp & lin sweeps, level control, output device selection, sync
+frame render + matched-filter detector with drift estimation (host-verified,
+entries 008/010), Gen tab with sweep progress.
+Open: multitone/warble, loopback round-trip latency test, output level checks.
+
+Original scope:
 
 - Sine (dithered), exponential/linear sweeps, white/pink noise, warble,
   multitone; output level control with dBFS calibration.

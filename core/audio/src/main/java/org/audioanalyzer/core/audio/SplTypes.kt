@@ -14,6 +14,28 @@ enum class SpectrumWindow(val nativeValue: Int, val label: String) {
     FLATTOP(2, "Flat-top"),
 }
 
+/** Values match the GenKind enum in AudioEngine.h. */
+enum class GenSignal(val nativeValue: Int, val label: String) {
+    SINE(0, "Sine"),
+    WHITE(1, "White"),
+    PINK(2, "Pink"),
+    SWEEP_EXP(3, "Sweep (exp)"),
+    SWEEP_LIN(4, "Sweep (lin)"),
+    ;
+
+    val isSweep: Boolean get() = this == SWEEP_EXP || this == SWEEP_LIN
+}
+
+/** Generator status decoded from the snapshot. */
+data class GenStatus(
+    val running: Boolean,
+    /** Null when idle. */
+    val signal: GenSignal?,
+    val positionSec: Double,
+    /** 0 for continuous signals. */
+    val durationSec: Double,
+)
+
 /** Values match aa::dsp::TimeWeighting in spl.h. */
 enum class TimeWeighting(val nativeValue: Int, val label: String, val suffix: String) {
     FAST(0, "Fast (125 ms)", "F"),

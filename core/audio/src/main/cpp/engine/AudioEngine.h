@@ -9,6 +9,7 @@
 
 #include "CallbackStats.h"
 #include "SpscRing.h"
+#include "generator.h"
 #include "spectrum.h"
 #include "spl.h"
 
@@ -55,7 +56,21 @@ enum SnapshotField : int {
     kSplL50Db = 34,
     kSplL90Db = 35,
     kSplElapsedSec = 36,
-    kSnapshotSize = 37,
+    // Generator (valid regardless of the input stream's state).
+    kGenRunning = 37,
+    kGenKind = 38,     // GenKind values; -1 when idle
+    kGenPosSec = 39,   // playback position for one-shot signals
+    kGenDurSec = 40,   // 0 for continuous signals
+    kSnapshotSize = 41,
+};
+
+// Generator signal kinds crossing JNI (mirrored by GenSignal in Kotlin).
+enum GenKind : int {
+    kGenSine = 0,
+    kGenWhite = 1,
+    kGenPink = 2,
+    kGenSweepExp = 3,
+    kGenSweepLin = 4,
 };
 
 // Owns the Oboe input stream. The audio callback only touches the SPSC ring
@@ -86,6 +101,19 @@ public:
     void spectrumConfigure(int32_t fftSize, int32_t window, double avgTauSec);
     int32_t spectrumRead(float* avg, float* peak, int32_t maxBins, bool psd);
     void spectrumResetPeak();
+
+    // Generator (output stream). Continuous tones/noise are synthesized in
+    // the output callback; sweeps are pre-rendered (optionally wrapped in
+    // the sync frame) and played one-shot. Returns oboe::Result as int.
+    int32_t genStartTone(int32_t deviceId, int32_t kind, double freqHz,
+                         double levelDb);
+    int32_t genStartSweep(int32_t deviceId, bool exponential, double f1,
+                          double f2, double durationSec, double levelDb,
+                          bool syncFrame);
+    // Live tone updates while running (click-free: level ramped, phase
+    // continuous).
+    void genSetTone(double freqHz, double levelDb);
+    void genStop();
 
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream* stream,
                                           void* audioData,
@@ -126,6 +154,40 @@ private:
     int32_t spectrumFftSize_ = 8192;
     int32_t spectrumWindow_ = static_cast<int32_t>(dsp::WindowType::Hann);
     double spectrumAvgTau_ = 0.5;
+
+    // --- Output / generator ---
+    // Separate callback object because AudioEngine's onAudioReady is the
+    // input callback.
+    class OutputCallback : public oboe::AudioStreamDataCallback,
+                           public oboe::AudioStreamErrorCallback {
+    public:
+        explicit OutputCallback(AudioEngine* owner) : owner_(owner) {}
+        oboe::DataCallbackResult onAudioReady(oboe::AudioStream* stream,
+                                              void* audioData,
+                                              int32_t numFrames) override;
+        void onErrorAfterClose(oboe::AudioStream* stream,
+                               oboe::Result error) override;
+
+    private:
+        AudioEngine* owner_;
+    };
+    friend class OutputCallback;
+
+    int32_t openOutputLocked(int32_t deviceId);  // caller holds mutex_
+    void genStopLocked();
+
+    OutputCallback outCallback_{this};
+    std::shared_ptr<oboe::AudioStream> outStream_;
+    dsp::ToneSynth synth_;
+    std::vector<float> playBuffer_;   // mono one-shot signal
+    std::vector<float> outScratch_;   // mono render scratch (RT: no alloc)
+    std::atomic<int> outMode_{0};     // 0 off, 1 synth, 2 buffer
+    std::atomic<std::size_t> playPos_{0};
+    std::atomic<bool> genRunning_{false};
+    std::atomic<int32_t> genKind_{-1};
+    int32_t outSampleRate_ = 0;
+    int32_t outChannels_ = 0;
+    double genDurSec_ = 0.0;
 
     std::atomic<bool> running_{false};
     std::atomic<int64_t> framesRead_{0};

@@ -31,4 +31,20 @@ internal object NativeEngine {
     external fun nativeSpectrumRead(avgOut: FloatArray, peakOut: FloatArray, psd: Boolean): Int
 
     external fun nativeSpectrumResetPeak()
+
+    external fun nativeGenStartTone(deviceId: Int, kind: Int, freqHz: Double, levelDb: Double): Int
+
+    external fun nativeGenStartSweep(
+        deviceId: Int,
+        exponential: Boolean,
+        f1: Double,
+        f2: Double,
+        durationSec: Double,
+        levelDb: Double,
+        syncFrame: Boolean,
+    ): Int
+
+    external fun nativeGenSetTone(freqHz: Double, levelDb: Double)
+
+    external fun nativeGenStop()
 }

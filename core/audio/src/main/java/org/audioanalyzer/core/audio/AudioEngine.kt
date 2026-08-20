@@ -51,6 +51,31 @@ class AudioEngine {
     fun resetSpectrumPeak() = NativeEngine.nativeSpectrumResetPeak()
 
     /**
+     * Starts a continuous tone/noise on the output device (0 = default).
+     * Level in dBFS (0 = full scale). Returns 0 or an oboe error code.
+     */
+    fun startTone(deviceId: Int, signal: GenSignal, freqHz: Double, levelDb: Double): Int =
+        NativeEngine.nativeGenStartTone(deviceId, signal.nativeValue, freqHz, levelDb)
+
+    /** Starts a one-shot sweep, optionally wrapped in the acoustic sync frame. */
+    fun startSweep(
+        deviceId: Int,
+        exponential: Boolean,
+        f1: Double,
+        f2: Double,
+        durationSec: Double,
+        levelDb: Double,
+        syncFrame: Boolean,
+    ): Int = NativeEngine.nativeGenStartSweep(
+        deviceId, exponential, f1, f2, durationSec, levelDb, syncFrame,
+    )
+
+    /** Click-free live update of a running tone. */
+    fun setTone(freqHz: Double, levelDb: Double) = NativeEngine.nativeGenSetTone(freqHz, levelDb)
+
+    fun stopGenerator() = NativeEngine.nativeGenStop()
+
+    /**
      * Polls current engine state. Each call also collects one hardware
      * timestamp, so poll at a steady cadence (~10 Hz) for the clock-drift
      * estimate to converge.

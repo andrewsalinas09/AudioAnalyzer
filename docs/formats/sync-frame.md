@@ -1,7 +1,9 @@
 # Sync frame specification (v0 — draft)
 
-Status: **draft**, to be frozen when the generator ships (Phase 3).
-Decision record: [ADR-0007](../adr/0007-sync-frame-for-multi-device.md).
+Status: **v0 implemented** (`dsp/syncframe.h/.cpp`, host-verified —
+validation entry 008); frozen as v1 when the Phase 4 hardware pass confirms
+the parameters. Decision record:
+[ADR-0007](../adr/0007-sync-frame-for-multi-device.md).
 
 ## Purpose
 

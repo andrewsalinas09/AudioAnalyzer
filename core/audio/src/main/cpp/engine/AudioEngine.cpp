@@ -4,10 +4,12 @@
 #include <oboe/OboeExtensions.h>
 #include <time.h>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
 #include "levels.h"
+#include "syncframe.h"
 
 #define LOG_TAG "aa_engine"
 #define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -156,6 +158,188 @@ void AudioEngine::spectrumResetPeak() {
     spectrum_.resetPeak();
 }
 
+// --- Generator ---
+
+int32_t AudioEngine::openOutputLocked(int32_t deviceId) {
+    if (outStream_) {
+        outStream_->stop();
+        outStream_->close();
+        outStream_.reset();
+    }
+    oboe::AudioStreamBuilder builder;
+    builder.setDirection(oboe::Direction::Output)
+        ->setPerformanceMode(oboe::PerformanceMode::LowLatency)
+        ->setUsage(oboe::Usage::Media)
+        ->setFormat(oboe::AudioFormat::Float)
+        ->setFormatConversionAllowed(true)
+        ->setDataCallback(&outCallback_)
+        ->setErrorCallback(&outCallback_);
+    if (deviceId > 0) builder.setDeviceId(deviceId);
+
+    const oboe::Result result = builder.openStream(outStream_);
+    if (result != oboe::Result::OK) {
+        ALOGW("output openStream failed: %s", oboe::convertToText(result));
+        outStream_.reset();
+        return static_cast<int32_t>(result);
+    }
+    outSampleRate_ = outStream_->getSampleRate();
+    outChannels_ = outStream_->getChannelCount();
+    // RT rule: the callback must never allocate, so size the mono scratch
+    // for the largest burst we could be asked for.
+    outScratch_.assign(
+        static_cast<std::size_t>(
+            std::max(outStream_->getBufferCapacityInFrames(), 8192)),
+        0.0f);
+    return 0;
+}
+
+int32_t AudioEngine::genStartTone(int32_t deviceId, int32_t kind,
+                                  double freqHz, double levelDb) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const int32_t rc = openOutputLocked(deviceId);
+    if (rc != 0) return rc;
+
+    synth_.configure(outSampleRate_,
+                     static_cast<dsp::ToneSynth::Kind>(kind));
+    synth_.setFrequency(freqHz);
+    synth_.setAmplitude(std::pow(10.0, levelDb / 20.0));
+    genKind_.store(kind);
+    genDurSec_ = 0.0;
+    outMode_.store(1);
+    genRunning_.store(true);
+
+    const oboe::Result r = outStream_->requestStart();
+    if (r != oboe::Result::OK) {
+        genStopLocked();
+        return static_cast<int32_t>(r);
+    }
+    ALOGI("gen tone started: kind=%d freq=%.1f level=%.1f rate=%d ch=%d",
+          kind, freqHz, levelDb, outSampleRate_, outChannels_);
+    return 0;
+}
+
+int32_t AudioEngine::genStartSweep(int32_t deviceId, bool exponential,
+                                   double f1, double f2, double durationSec,
+                                   double levelDb, bool syncFrame) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const int32_t rc = openOutputLocked(deviceId);
+    if (rc != 0) return rc;
+
+    const double amp = std::pow(10.0, levelDb / 20.0);
+    std::vector<float> payload =
+        exponential
+            ? dsp::renderExpSweep(outSampleRate_, f1, f2, durationSec, amp)
+            : dsp::renderLinSweep(outSampleRate_, f1, f2, durationSec, amp);
+    if (syncFrame) {
+        playBuffer_ = dsp::wrapWithSyncFrame(payload, outSampleRate_,
+                                             dsp::SyncFrameSpec{}, amp);
+    } else {
+        playBuffer_ = std::move(payload);
+    }
+    playPos_.store(0);
+    genKind_.store(exponential ? kGenSweepExp : kGenSweepLin);
+    genDurSec_ = static_cast<double>(playBuffer_.size()) / outSampleRate_;
+    outMode_.store(2);
+    genRunning_.store(true);
+
+    const oboe::Result r = outStream_->requestStart();
+    if (r != oboe::Result::OK) {
+        genStopLocked();
+        return static_cast<int32_t>(r);
+    }
+    ALOGI("gen sweep started: %s %.0f-%.0f Hz %.1fs sync=%d total=%.2fs",
+          exponential ? "exp" : "lin", f1, f2, durationSec, syncFrame ? 1 : 0,
+          genDurSec_);
+    return 0;
+}
+
+void AudioEngine::genSetTone(double freqHz, double levelDb) {
+    // Atomics only; safe without the lock.
+    synth_.setFrequency(freqHz);
+    synth_.setAmplitude(std::pow(10.0, levelDb / 20.0));
+}
+
+void AudioEngine::genStopLocked() {
+    outMode_.store(0);
+    genRunning_.store(false);
+    genKind_.store(-1);
+    if (outStream_) {
+        outStream_->stop();
+        outStream_->close();
+        outStream_.reset();
+    }
+}
+
+void AudioEngine::genStop() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    genStopLocked();
+}
+
+oboe::DataCallbackResult AudioEngine::OutputCallback::onAudioReady(
+    oboe::AudioStream* stream, void* audioData, int32_t numFrames) {
+    auto* e = owner_;
+    auto* out = static_cast<float*>(audioData);
+    const int ch = stream->getChannelCount();
+    const auto frames = static_cast<std::size_t>(numFrames);
+    const int mode = e->outMode_.load(std::memory_order_relaxed);
+
+    if (mode == 1) {
+        // Continuous synth: render mono in scratch-sized chunks, duplicate
+        // into all channels.
+        std::size_t done = 0;
+        while (done < frames) {
+            const std::size_t n =
+                std::min(frames - done, e->outScratch_.size());
+            e->synth_.render(e->outScratch_.data(), n);
+            for (std::size_t i = 0; i < n; ++i) {
+                for (int c = 0; c < ch; ++c) {
+                    out[(done + i) * static_cast<std::size_t>(ch) +
+                        static_cast<std::size_t>(c)] = e->outScratch_[i];
+                }
+            }
+            done += n;
+        }
+        return oboe::DataCallbackResult::Continue;
+    }
+
+    if (mode == 2) {
+        const std::size_t pos = e->playPos_.load(std::memory_order_relaxed);
+        const std::size_t remaining =
+            pos < e->playBuffer_.size() ? e->playBuffer_.size() - pos : 0;
+        const std::size_t n = std::min(frames, remaining);
+        for (std::size_t i = 0; i < n; ++i) {
+            const float v = e->playBuffer_[pos + i];
+            for (int c = 0; c < ch; ++c) {
+                out[i * static_cast<std::size_t>(ch) +
+                    static_cast<std::size_t>(c)] = v;
+            }
+        }
+        // Zero-fill the tail after the signal ends.
+        for (std::size_t i = n * static_cast<std::size_t>(ch);
+             i < frames * static_cast<std::size_t>(ch); ++i) {
+            out[i] = 0.0f;
+        }
+        e->playPos_.store(pos + n, std::memory_order_relaxed);
+        if (n < frames) {
+            e->genRunning_.store(false);
+            e->outMode_.store(0);
+            return oboe::DataCallbackResult::Stop;
+        }
+        return oboe::DataCallbackResult::Continue;
+    }
+
+    // Off: silence.
+    std::fill(out, out + frames * static_cast<std::size_t>(ch), 0.0f);
+    return oboe::DataCallbackResult::Continue;
+}
+
+void AudioEngine::OutputCallback::onErrorAfterClose(
+    oboe::AudioStream* /*stream*/, oboe::Result error) {
+    ALOGW("output stream error: %s", oboe::convertToText(error));
+    owner_->genRunning_.store(false);
+    owner_->outMode_.store(0);
+}
+
 void AudioEngine::stop() {
     std::lock_guard<std::mutex> lock(mutex_);
     running_.store(false);
@@ -252,6 +436,14 @@ void AudioEngine::snapshot(double* out, std::size_t n) {
                   kSplL50Db, kSplL90Db}) {
         out[f] = std::numeric_limits<double>::quiet_NaN();
     }
+    // Generator status is valid regardless of the input stream's state.
+    out[kGenRunning] = genRunning_.load() ? 1.0 : 0.0;
+    out[kGenKind] = genKind_.load();
+    out[kGenPosSec] =
+        (outMode_.load() == 2 && outSampleRate_ > 0)
+            ? static_cast<double>(playPos_.load()) / outSampleRate_
+            : 0.0;
+    out[kGenDurSec] = genDurSec_;
     if (!running) return;
 
     out[kAudioApi] = audioApi_;

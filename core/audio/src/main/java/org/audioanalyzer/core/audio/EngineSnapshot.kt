@@ -46,6 +46,8 @@ data class EngineSnapshot(
     val inputPresetActual: Int,
     /** SPL engine statistics (channel 0, weighted dBFS). */
     val spl: SplStats,
+    /** Generator status (valid regardless of the input stream's state). */
+    val gen: GenStatus,
 ) {
     val isUnprocessed: Boolean
         get() = inputPresetActual == InputPreset.UNPROCESSED.oboeValue
@@ -90,6 +92,12 @@ data class EngineSnapshot(
                 l50Db = a[34],
                 l90Db = a[35],
                 elapsedSec = a[36],
+            ),
+            gen = GenStatus(
+                running = a[37] != 0.0,
+                signal = GenSignal.entries.firstOrNull { it.nativeValue == a[38].toInt() },
+                positionSec = a[39],
+                durationSec = a[40],
             ),
         )
     }

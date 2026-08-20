@@ -24,6 +24,14 @@ object DeviceCatalog {
             .sortedByDescending { it.isUsb }
     }
 
+    /** All available output devices (same UI shape as inputs). */
+    fun outputDevices(context: Context): List<InputDevice> {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        return am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .map { it.toInputDevice() }
+            .sortedByDescending { it.isUsb }
+    }
+
     /** Whether the platform claims support for the UNPROCESSED input source. */
     fun supportsUnprocessed(context: Context): Boolean {
         val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager

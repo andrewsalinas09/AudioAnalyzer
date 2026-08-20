@@ -77,4 +77,34 @@ Java_org_audioanalyzer_core_audio_NativeEngine_nativeSpectrumResetPeak(
     aa::AudioEngine::instance().spectrumResetPeak();
 }
 
+JNIEXPORT jint JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeGenStartTone(
+    JNIEnv* /*env*/, jobject /*thiz*/, jint deviceId, jint kind,
+    jdouble freqHz, jdouble levelDb) {
+    return aa::AudioEngine::instance().genStartTone(deviceId, kind, freqHz,
+                                                    levelDb);
+}
+
+JNIEXPORT jint JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeGenStartSweep(
+    JNIEnv* /*env*/, jobject /*thiz*/, jint deviceId, jboolean exponential,
+    jdouble f1, jdouble f2, jdouble durationSec, jdouble levelDb,
+    jboolean syncFrame) {
+    return aa::AudioEngine::instance().genStartSweep(
+        deviceId, exponential == JNI_TRUE, f1, f2, durationSec, levelDb,
+        syncFrame == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeGenSetTone(
+    JNIEnv* /*env*/, jobject /*thiz*/, jdouble freqHz, jdouble levelDb) {
+    aa::AudioEngine::instance().genSetTone(freqHz, levelDb);
+}
+
+JNIEXPORT void JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeGenStop(
+    JNIEnv* /*env*/, jobject /*thiz*/) {
+    aa::AudioEngine::instance().genStop();
+}
+
 }  // extern "C"

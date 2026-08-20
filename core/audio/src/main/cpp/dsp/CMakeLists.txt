@@ -22,13 +22,15 @@ add_library(aa_dsp STATIC
         fft.cpp
         window.cpp
         spectrum.cpp
+        generator.cpp
+        syncframe.cpp
         third_party/pffft/pffft.c
 )
 target_include_directories(aa_dsp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(AA_DSP_STANDALONE)
     enable_testing()
-    foreach(t levels weighting spl spectrum)
+    foreach(t levels weighting spl spectrum generator syncframe)
         add_executable(${t}_test tests/${t}_test.cpp)
         target_link_libraries(${t}_test PRIVATE aa_dsp)
         add_test(NAME ${t} COMMAND ${t}_test)

@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import org.audioanalyzer.core.audio.AudioEngine
 import org.audioanalyzer.core.audio.DeviceCatalog
 import org.audioanalyzer.core.audio.EngineSnapshot
+import org.audioanalyzer.core.audio.GenSignal
 import org.audioanalyzer.core.audio.InputDevice
 import org.audioanalyzer.core.audio.InputPreset
 import org.audioanalyzer.core.audio.SpectrumWindow
@@ -43,6 +44,17 @@ data class MainUiState(
     /** True while the RTA tab is visible — enables the fast spectrum poll. */
     val rtaActive: Boolean = false,
     val rtaVersion: Long = 0,
+    // Generator configuration.
+    val outputDevices: List<InputDevice> = emptyList(),
+    val genOutputDeviceId: Int = 0, // 0 = platform default
+    val genSignal: GenSignal = GenSignal.PINK,
+    val genFreqHz: Double = 1000.0,
+    val genLevelDb: Double = -12.0,
+    val genSweepF1: Double = 20.0,
+    val genSweepF2: Double = 20000.0,
+    val genSweepDurSec: Double = 5.0,
+    val genSyncFrame: Boolean = true,
+    val genErrorCode: Int? = null,
 )
 
 /** One SPL log sample. Levels stay in weighted dBFS so a calibration change
@@ -91,16 +103,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         engine.configureSpl(_state.value.weighting, _state.value.timeWeighting)
         viewModelScope.launch {
             while (isActive) {
-                if (_state.value.running) {
-                    val snap = engine.snapshot()
-                    appendLogPoint(snap)
-                    _state.update {
-                        it.copy(
-                            snapshot = snap,
-                            running = snap.running,
-                            logVersion = it.logVersion + 1,
-                        )
-                    }
+                // Poll unconditionally: the snapshot also carries generator
+                // status, which is valid while the input stream is stopped.
+                val snap = engine.snapshot()
+                if (_state.value.running) appendLogPoint(snap)
+                _state.update {
+                    it.copy(
+                        snapshot = snap,
+                        running = snap.running,
+                        logVersion = it.logVersion + 1,
+                    )
                 }
                 delay(pollMs)
             }
@@ -129,7 +141,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshDevices() {
-        _state.update { it.copy(devices = DeviceCatalog.inputDevices(getApplication())) }
+        _state.update {
+            it.copy(
+                devices = DeviceCatalog.inputDevices(getApplication()),
+                outputDevices = DeviceCatalog.outputDevices(getApplication()),
+            )
+        }
     }
 
     fun selectDevice(id: Int) {
@@ -202,6 +219,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(rtaSmoothing = denominator) }
 
     fun resetRtaPeak() = engine.resetSpectrumPeak()
+
+    // --- Generator ---
+
+    val genRunning: Boolean
+        get() = _state.value.snapshot?.gen?.running == true
+
+    fun startGenerator() {
+        val s = _state.value
+        val rc = if (s.genSignal.isSweep) {
+            engine.startSweep(
+                deviceId = s.genOutputDeviceId,
+                exponential = s.genSignal == GenSignal.SWEEP_EXP,
+                f1 = s.genSweepF1,
+                f2 = s.genSweepF2,
+                durationSec = s.genSweepDurSec,
+                levelDb = s.genLevelDb,
+                syncFrame = s.genSyncFrame,
+            )
+        } else {
+            engine.startTone(s.genOutputDeviceId, s.genSignal, s.genFreqHz, s.genLevelDb)
+        }
+        _state.update { it.copy(genErrorCode = if (rc == 0) null else rc) }
+    }
+
+    fun stopGenerator() = engine.stopGenerator()
+
+    fun setGenSignal(signal: GenSignal) = _state.update { it.copy(genSignal = signal) }
+
+    fun setGenFrequency(hz: Double) {
+        _state.update { it.copy(genFreqHz = hz) }
+        if (genRunning && !_state.value.genSignal.isSweep) {
+            engine.setTone(hz, _state.value.genLevelDb)
+        }
+    }
+
+    fun setGenLevel(db: Double) {
+        _state.update { it.copy(genLevelDb = db) }
+        if (genRunning && !_state.value.genSignal.isSweep) {
+            engine.setTone(_state.value.genFreqHz, db)
+        }
+    }
+
+    fun setGenSweep(
+        f1: Double = _state.value.genSweepF1,
+        f2: Double = _state.value.genSweepF2,
+        durSec: Double = _state.value.genSweepDurSec,
+    ) = _state.update { it.copy(genSweepF1 = f1, genSweepF2 = f2, genSweepDurSec = durSec) }
+
+    fun setGenSyncFrame(on: Boolean) = _state.update { it.copy(genSyncFrame = on) }
+
+    fun selectGenOutput(id: Int) = _state.update { it.copy(genOutputDeviceId = id) }
 
     // --- Calibration ---
 
@@ -293,6 +361,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        engine.stopGenerator()
         engine.stop()
     }
 }
