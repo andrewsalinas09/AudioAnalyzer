@@ -35,6 +35,21 @@ class AudioEngine {
     /** Clears Leq/Lmax/Lmin/LN/elapsed; the live level is unaffected. */
     fun resetSplStats() = NativeEngine.nativeSplResetStats()
 
+    /** RTA configuration; applies immediately if running, and to later starts. */
+    fun configureSpectrum(fftSize: Int, window: SpectrumWindow, avgTauSec: Double) =
+        NativeEngine.nativeSpectrumConfigure(fftSize, window.nativeValue, avgTauSec)
+
+    /**
+     * Computes any due FFT frames and fills [avgOut]/[peakOut] with dB values
+     * ([psd] selects dBFS/Hz density scaling for the average trace).
+     * Returns the number of valid bins, or 0 if not running / no data yet.
+     * Bin k is at frequency k * sampleRate / fftSize.
+     */
+    fun readSpectrum(avgOut: FloatArray, peakOut: FloatArray, psd: Boolean): Int =
+        NativeEngine.nativeSpectrumRead(avgOut, peakOut, psd)
+
+    fun resetSpectrumPeak() = NativeEngine.nativeSpectrumResetPeak()
+
     /**
      * Polls current engine state. Each call also collects one hardware
      * timestamp, so poll at a steady cadence (~10 Hz) for the clock-drift

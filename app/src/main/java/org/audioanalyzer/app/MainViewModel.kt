@@ -16,6 +16,7 @@ import org.audioanalyzer.core.audio.DeviceCatalog
 import org.audioanalyzer.core.audio.EngineSnapshot
 import org.audioanalyzer.core.audio.InputDevice
 import org.audioanalyzer.core.audio.InputPreset
+import org.audioanalyzer.core.audio.SpectrumWindow
 import org.audioanalyzer.core.audio.TimeWeighting
 import org.audioanalyzer.core.audio.Weighting
 
@@ -32,6 +33,14 @@ data class MainUiState(
     val cal: CalibrationRepository.CalState = CalibrationRepository.CalState(),
     /** Bumped whenever [MainViewModel.logPoints] changes (chart invalidation). */
     val logVersion: Long = 0,
+    // RTA configuration + invalidation counter for the spectrum buffers.
+    val rtaFftSize: Int = 8192,
+    val rtaWindow: SpectrumWindow = SpectrumWindow.HANN,
+    val rtaAvgTauSec: Double = 0.5,
+    val rtaPsd: Boolean = false,
+    /** Fractional-octave smoothing denominator (0 = off, 3 = 1/3 oct, ...). */
+    val rtaSmoothing: Int = 12,
+    val rtaVersion: Long = 0,
 )
 
 /** One SPL log sample. Levels stay in weighted dBFS so a calibration change
@@ -59,6 +68,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val maxLogPoints = 72_000
     private var logStartRealtimeMs: Long? = null
 
+    /** Latest RTA traces in dB; valid for [rtaBins] bins of [rtaBinHz] each.
+     *  Read after observing [MainUiState.rtaVersion]. */
+    var rtaAvg = FloatArray(8192 / 2 + 1); private set
+    var rtaPeak = FloatArray(8192 / 2 + 1); private set
+    var rtaBins = 0; private set
+    var rtaBinHz = 0.0; private set
+
     /** Poll cadence; the clock-drift regression assumes a steady ~10 Hz. */
     private val pollMs = 100L
 
@@ -76,11 +92,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (_state.value.running) {
                     val snap = engine.snapshot()
                     appendLogPoint(snap)
+                    val bins = engine.readSpectrum(rtaAvg, rtaPeak, _state.value.rtaPsd)
+                    if (bins > 0) {
+                        rtaBins = bins
+                        rtaBinHz = snap.sampleRateNominal.toDouble() /
+                            _state.value.rtaFftSize
+                    }
                     _state.update {
                         it.copy(
                             snapshot = snap,
                             running = snap.running,
                             logVersion = it.logVersion + 1,
+                            rtaVersion = if (bins > 0) it.rtaVersion + 1 else it.rtaVersion,
                         )
                     }
                 }
@@ -135,6 +158,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetSplStats() = engine.resetSplStats()
+
+    // --- RTA ---
+
+    fun setRtaConfig(
+        fftSize: Int = _state.value.rtaFftSize,
+        window: SpectrumWindow = _state.value.rtaWindow,
+        avgTauSec: Double = _state.value.rtaAvgTauSec,
+    ) {
+        _state.update {
+            it.copy(rtaFftSize = fftSize, rtaWindow = window, rtaAvgTauSec = avgTauSec)
+        }
+        val nb = fftSize / 2 + 1
+        if (rtaAvg.size < nb) {
+            rtaAvg = FloatArray(nb)
+            rtaPeak = FloatArray(nb)
+        }
+        rtaBins = 0
+        engine.configureSpectrum(fftSize, window, avgTauSec)
+    }
+
+    fun setRtaPsd(psd: Boolean) = _state.update { it.copy(rtaPsd = psd) }
+
+    fun setRtaSmoothing(denominator: Int) =
+        _state.update { it.copy(rtaSmoothing = denominator) }
+
+    fun resetRtaPeak() = engine.resetSpectrumPeak()
 
     // --- Calibration ---
 

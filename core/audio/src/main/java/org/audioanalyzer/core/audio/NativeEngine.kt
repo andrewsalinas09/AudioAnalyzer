@@ -25,4 +25,10 @@ internal object NativeEngine {
     external fun nativeSplConfigure(weighting: Int, timeWeighting: Int)
 
     external fun nativeSplResetStats()
+
+    external fun nativeSpectrumConfigure(fftSize: Int, window: Int, avgTauSec: Double)
+
+    external fun nativeSpectrumRead(avgOut: FloatArray, peakOut: FloatArray, psd: Boolean): Int
+
+    external fun nativeSpectrumResetPeak()
 }

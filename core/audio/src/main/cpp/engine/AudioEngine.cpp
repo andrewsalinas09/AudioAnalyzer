@@ -100,6 +100,9 @@ int32_t AudioEngine::start(int32_t deviceId, int32_t sampleRate,
     spl_.configure(sampleRateNominal_,
                    static_cast<dsp::Weighting>(splWeighting_),
                    static_cast<dsp::TimeWeighting>(splTimeWeighting_));
+    spectrum_.configure(sampleRateNominal_, spectrumFftSize_,
+                        static_cast<dsp::WindowType>(spectrumWindow_),
+                        spectrumAvgTau_);
 
     running_.store(true);
     ALOGI("input started: rate=%d ch=%d burst=%d api=%d mmap=%d preset=%d",
@@ -122,6 +125,34 @@ void AudioEngine::splConfigure(int32_t weighting, int32_t timeWeighting) {
 void AudioEngine::splResetStats() {
     std::lock_guard<std::mutex> lock(mutex_);
     spl_.resetStats();
+}
+
+void AudioEngine::spectrumConfigure(int32_t fftSize, int32_t window,
+                                    double avgTauSec) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    spectrumFftSize_ = fftSize;
+    spectrumWindow_ = window;
+    spectrumAvgTau_ = avgTauSec;
+    if (running_.load() && stream_) {
+        spectrum_.configure(sampleRateNominal_, fftSize,
+                            static_cast<dsp::WindowType>(window), avgTauSec);
+    }
+}
+
+int32_t AudioEngine::spectrumRead(float* avg, float* peak, int32_t maxBins,
+                                  bool psd) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!running_.load() || !stream_) return 0;
+    if (spectrum_.bins() > maxBins) return 0;
+    if (!spectrum_.compute()) return 0;
+    spectrum_.readAverage(avg, psd);
+    spectrum_.readPeak(peak);
+    return spectrum_.bins();
+}
+
+void AudioEngine::spectrumResetPeak() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    spectrum_.resetPeak();
 }
 
 void AudioEngine::stop() {
@@ -249,6 +280,7 @@ void AudioEngine::snapshot(double* out, std::size_t n) {
     if (drained > 0 && channelCount_ > 0) {
         const std::size_t frames = drained / static_cast<std::size_t>(channelCount_);
         spl_.process(scratch_.data(), frames, channelCount_, 0);
+        spectrum_.feed(scratch_.data(), frames, channelCount_, 0);
         const int chToMeasure = channelCount_ > 2 ? 2 : channelCount_;
         for (int ch = 0; ch < chToMeasure; ++ch) {
             const auto lv = dsp::computeLevels(scratch_.data(), frames,

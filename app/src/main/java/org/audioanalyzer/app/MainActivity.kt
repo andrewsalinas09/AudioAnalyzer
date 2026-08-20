@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val tabs = listOf("SPL", "Log", "Health", "Calibration")
+private val tabs = listOf("SPL", "RTA", "Log", "Health", "Cal")
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -80,8 +80,9 @@ private fun AppRoot() {
         androidx.compose.foundation.layout.Box(modifier = Modifier.padding(padding)) {
             when (tab) {
                 0 -> SplScreen(viewModel)
-                1 -> LogScreen(viewModel)
-                2 -> AudioHealthScreen(viewModel)
+                1 -> RtaScreen(viewModel)
+                2 -> LogScreen(viewModel)
+                3 -> AudioHealthScreen(viewModel)
                 else -> CalibrationScreen(viewModel)
             }
         }

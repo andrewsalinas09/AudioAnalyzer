@@ -15,7 +15,7 @@ the numbers obtained, and the acceptance criterion.
 | 003 | Engine instrumentation on hardware | S25 Ultra, built-in mic + iMM-6C ([report](003-audio-health-hardware-pass.md)) | ✅ 2026-08-19 (absolute drift cross-check → 008) |
 | 004 | A/C/Z weighting filters | IEC 61672-1 tolerance tables ([report](004-weighting-filters.md)) | ✅ host test `weighting_test.cpp` |
 | 005 | SPL absolute level | 94 dB calibrator / reference SLM | planned (Phase 1) |
-| 006 | FFT magnitude & PSD normalization | Analytic sine + synthetic white noise | planned (Phase 2) |
+| 006 | FFT magnitude & PSD normalization | Analytic sine + synthetic white noise ([report](006-spectrum-normalization.md)) | ✅ host test `spectrum_test.cpp` |
 | 007 | Sweep → IR → group delay | Synthetic known system (all-pass/delay chains) | planned (Phase 4) |
 | 008 | Cross-device sync & drift correction | Loopback + two-device chirp test | planned (Phase 4) |
 | 009 | End-to-end vs REW | Same mic, same room, desktop REW comparison | planned (Phase 4) |

@@ -48,4 +48,33 @@ Java_org_audioanalyzer_core_audio_NativeEngine_nativeSplResetStats(
     aa::AudioEngine::instance().splResetStats();
 }
 
+JNIEXPORT void JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeSpectrumConfigure(
+    JNIEnv* /*env*/, jobject /*thiz*/, jint fftSize, jint window,
+    jdouble avgTauSec) {
+    aa::AudioEngine::instance().spectrumConfigure(fftSize, window, avgTauSec);
+}
+
+JNIEXPORT jint JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeSpectrumRead(
+    JNIEnv* env, jobject /*thiz*/, jfloatArray avgOut, jfloatArray peakOut,
+    jboolean psd) {
+    const jsize avgLen = env->GetArrayLength(avgOut);
+    const jsize peakLen = env->GetArrayLength(peakOut);
+    const jsize maxBins = avgLen < peakLen ? avgLen : peakLen;
+    jfloat* avg = env->GetFloatArrayElements(avgOut, nullptr);
+    jfloat* peak = env->GetFloatArrayElements(peakOut, nullptr);
+    const jint bins = aa::AudioEngine::instance().spectrumRead(
+        avg, peak, maxBins, psd == JNI_TRUE);
+    env->ReleaseFloatArrayElements(avgOut, avg, bins > 0 ? 0 : JNI_ABORT);
+    env->ReleaseFloatArrayElements(peakOut, peak, bins > 0 ? 0 : JNI_ABORT);
+    return bins;
+}
+
+JNIEXPORT void JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeSpectrumResetPeak(
+    JNIEnv* /*env*/, jobject /*thiz*/) {
+    aa::AudioEngine::instance().spectrumResetPeak();
+}
+
 }  // extern "C"

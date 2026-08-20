@@ -17,7 +17,13 @@ decisions have ADRs.
 - Calibration parser for all three dialects with real-file unit tests.
 - Docs baseline: ADRs 0001–0007, format specs, this roadmap.
 
-## Phase 1 — Level engine (SPL meter)
+## Phase 1 — Level engine (SPL meter) — largely ✅ (2026-08-19)
+
+Done: SPL meter (weightings, detectors, Leq/LN), calibration import/UI with
+raw-header display, manual trim, SPL time log with chart + CSV export.
+Open: WAV file import; calibrator-based absolute-SPL validation (entry 005).
+
+Original scope:
 
 - dBFS and dB SPL via calibration sensitivity + manual trim.
 - IEC 61672 A/C/Z weighting biquads, validated against the standard's
@@ -29,7 +35,14 @@ decisions have ADRs.
 - WAV file import: the analysis pipeline accepts a file source as an
   alternative to the live engine (also the test path for everything above).
 
-## Phase 2 — RTA + spectrogram
+## Phase 2 — RTA + spectrogram — in progress
+
+Done 2026-08-19: pffft vendored (ADR-0008), spectrum engine with validated
+amplitude/PSD normalization (entry 006), RTA screen (log-f plot, octave
+smoothing, peak hold, tap cursor, per-bin cal correction).
+Open: spectrogram/waterfall, linear averaging mode.
+
+Original scope:
 
 - FFT (vendored pffft or KissFFT — final ADR then), windows (Hann,
   flat-top, rectangular), correct magnitude/PSD normalization (dBFS per bin

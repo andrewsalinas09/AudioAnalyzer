@@ -6,3 +6,9 @@ This product includes software developed by third parties:
 - Oboe (https://github.com/google/oboe)
   Copyright The Android Open Source Project
   Licensed under the Apache License, Version 2.0
+
+- PFFFT (https://bitbucket.org/jpommier/pffft)
+  Copyright (c) 2013 Julien Pommier, based on FFTPACKv4 by
+  Dr Paul Swarztrauber of NCAR (Copyright (c) 2004 UCAR)
+  Licensed under the FFTPACK license (BSD-style); vendored at
+  core/audio/src/main/cpp/dsp/third_party/pffft/ with its license header

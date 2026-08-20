@@ -9,6 +9,7 @@
 
 #include "CallbackStats.h"
 #include "SpscRing.h"
+#include "spectrum.h"
 #include "spl.h"
 
 namespace aa {
@@ -78,6 +79,14 @@ public:
     void splConfigure(int32_t weighting, int32_t timeWeighting);
     void splResetStats();
 
+    // RTA spectrum. Configure applies immediately if running and to later
+    // starts. Read computes any due FFT frames from samples fed by
+    // snapshot()'s drain, then fills avg/peak (each maxBins floats, dB) and
+    // returns the bin count — 0 if not running or no frame yet.
+    void spectrumConfigure(int32_t fftSize, int32_t window, double avgTauSec);
+    int32_t spectrumRead(float* avg, float* peak, int32_t maxBins, bool psd);
+    void spectrumResetPeak();
+
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream* stream,
                                           void* audioData,
                                           int32_t numFrames) override;
@@ -106,6 +115,11 @@ private:
     dsp::SplProcessor spl_;
     int32_t splWeighting_ = static_cast<int32_t>(dsp::Weighting::A);
     int32_t splTimeWeighting_ = static_cast<int32_t>(dsp::TimeWeighting::Fast);
+
+    dsp::SpectrumProcessor spectrum_;
+    int32_t spectrumFftSize_ = 8192;
+    int32_t spectrumWindow_ = static_cast<int32_t>(dsp::WindowType::Hann);
+    double spectrumAvgTau_ = 0.5;
 
     std::atomic<bool> running_{false};
     std::atomic<int64_t> framesRead_{0};

@@ -7,6 +7,13 @@ enum class Weighting(val nativeValue: Int, val label: String, val suffix: String
     C(2, "C", "C"),
 }
 
+/** Values match aa::dsp::WindowType in window.h. */
+enum class SpectrumWindow(val nativeValue: Int, val label: String) {
+    RECTANGULAR(0, "Rect"),
+    HANN(1, "Hann"),
+    FLATTOP(2, "Flat-top"),
+}
+
 /** Values match aa::dsp::TimeWeighting in spl.h. */
 enum class TimeWeighting(val nativeValue: Int, val label: String, val suffix: String) {
     FAST(0, "Fast (125 ms)", "F"),
