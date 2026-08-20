@@ -19,7 +19,9 @@ enum class GenSignal(val nativeValue: Int, val label: String) {
     SINE(0, "Sine"),
     WHITE(1, "White"),
     PINK(2, "Pink"),
-    SWEEP_EXP(3, "Sweep (exp)"),
+    // Exponential-in-time == logarithmic-in-frequency: the standard
+    // measurement sweep (Farina). Labeled "log" per common usage.
+    SWEEP_EXP(3, "Sweep (log)"),
     SWEEP_LIN(4, "Sweep (lin)"),
     ;
 

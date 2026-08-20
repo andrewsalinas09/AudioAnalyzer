@@ -302,7 +302,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         durSec: Double = _state.value.irSweepDurSec,
     ) = _state.update { it.copy(irSweepF1 = f1, irSweepF2 = f2, irSweepDurSec = durSec) }
 
-    fun startIrMeasurement() {
+    /**
+     * Runs an IR measurement. With [playLocally] the sweep is played from
+     * this device (full duplex, one-phone measurement). Without it the
+     * device only listens: the capture window includes arming slack so
+     * another device can play a sync-framed sweep with the SAME band and
+     * duration — the sync frame does the alignment.
+     */
+    fun startIrMeasurement(playLocally: Boolean = true) {
         val s = _state.value
         if (s.irPhase == IrPhase.MEASURING || s.irPhase == IrPhase.ANALYZING) return
         if (!s.running) {
@@ -313,26 +320,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         // Frame: chirp + guard + sweep + guard + chirp; capture adds start
-        // slack and a reverb tail.
+        // slack (generous when waiting for a remote emitter) and reverb tail.
         val frameSec = 0.1 + 0.25 + s.irSweepDurSec + 0.25 + 0.1
-        val captureSec = 1.0 + frameSec + 1.5
+        val captureSec = (if (playLocally) 1.0 else 8.0) + frameSec + 1.5
         if (engine.irBeginCapture(captureSec) != 0) {
             _state.update { it.copy(irPhase = IrPhase.FAILED, irError = "capture failed to start") }
             return
         }
-        val rc = engine.startSweep(
-            deviceId = s.genOutputDeviceId,
-            exponential = true,
-            f1 = s.irSweepF1,
-            f2 = s.irSweepF2,
-            durationSec = s.irSweepDurSec,
-            levelDb = s.genLevelDb,
-            syncFrame = true,
-        )
-        if (rc != 0) {
-            engine.irAbort()
-            _state.update { it.copy(irPhase = IrPhase.FAILED, irError = "output failed (oboe $rc)") }
-            return
+        if (playLocally) {
+            val rc = engine.startSweep(
+                deviceId = s.genOutputDeviceId,
+                exponential = true,
+                f1 = s.irSweepF1,
+                f2 = s.irSweepF2,
+                durationSec = s.irSweepDurSec,
+                levelDb = s.genLevelDb,
+                syncFrame = true,
+            )
+            if (rc != 0) {
+                engine.irAbort()
+                _state.update { it.copy(irPhase = IrPhase.FAILED, irError = "output failed (oboe $rc)") }
+                return
+            }
         }
         _state.update { it.copy(irPhase = IrPhase.MEASURING, irError = null, irProgress = 0f) }
 

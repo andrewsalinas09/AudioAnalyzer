@@ -85,13 +85,29 @@ fun IrScreen(viewModel: MainViewModel) {
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = viewModel::startIrMeasurement, enabled = !busy) {
+            Button(
+                onClick = { viewModel.startIrMeasurement(playLocally = true) },
+                enabled = !busy,
+            ) {
                 Text(if (busy) "Measuring…" else "Measure")
             }
+            OutlinedButton(
+                onClick = { viewModel.startIrMeasurement(playLocally = false) },
+                enabled = !busy,
+            ) { Text("Listen only") }
             if (busy) {
                 OutlinedButton(onClick = viewModel::abortIrMeasurement) { Text("Abort") }
             }
         }
+        Text(
+            "Measure: this phone plays the sync-framed sweep and records it — " +
+                "a complete one-device measurement.\n" +
+                "Listen only: this phone just records for a while; play a " +
+                "sync-framed Sweep (log) with the SAME band and duration from " +
+                "another device's Gen tab. The chirp markers align and " +
+                "drift-correct the capture automatically.",
+            style = MaterialTheme.typography.bodySmall,
+        )
         if (busy) {
             LinearProgressIndicator(
                 progress = { state.irProgress },
