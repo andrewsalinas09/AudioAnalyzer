@@ -123,6 +123,16 @@ fun RtaScreen(viewModel: MainViewModel) {
             )
         }
 
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var pendingCsv by remember { mutableStateOf<String?>(null) }
+        val saveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/csv"),
+        ) { uri ->
+            val content = pendingCsv
+            if (uri != null && content != null) viewModel.writeCsvTo(uri, content)
+            pendingCsv = null
+        }
+
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             if (state.running) {
                 Button(onClick = viewModel::stop) { Text("Stop") }
@@ -130,6 +140,33 @@ fun RtaScreen(viewModel: MainViewModel) {
                 Button(onClick = viewModel::start) { Text("Start") }
             }
             OutlinedButton(onClick = viewModel::resetRtaPeak) { Text("Clear peak") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(
+                onClick = {
+                    viewModel.buildRtaCsv()?.let { csv ->
+                        val uri = viewModel.shareableCsv("rta", csv)
+                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/csv"
+                            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(
+                            android.content.Intent.createChooser(send, "Share RTA spectrum"),
+                        )
+                    }
+                },
+                enabled = traces != null,
+            ) { Text("Share CSV") }
+            OutlinedButton(
+                onClick = {
+                    viewModel.buildRtaCsv()?.let { csv ->
+                        pendingCsv = csv
+                        saveLauncher.launch("rta_spectrum.csv")
+                    }
+                },
+                enabled = traces != null,
+            ) { Text("Save CSV") }
         }
     }
 }

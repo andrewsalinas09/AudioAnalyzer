@@ -331,36 +331,88 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(logVersion = it.logVersion + 1) }
     }
 
-    /** Writes the log as CSV into the cache and returns a shareable Uri. */
-    fun exportLogCsv(): android.net.Uri {
-        val app = getApplication<Application>()
-        val s = _state.value
-        val dir = java.io.File(app.cacheDir, "exports").apply { mkdirs() }
-        val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
+    private fun timestamp(): String =
+        java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
             .format(java.util.Date())
-        val file = java.io.File(dir, "spl_log_$stamp.csv")
+
+    /** The SPL log as CSV text (metadata header + rows). */
+    fun buildLogCsv(): String {
+        val s = _state.value
         val offset = s.cal.totalOffsetDb
-        file.bufferedWriter().use { w ->
-            w.appendLine("# AudioAnalyzer SPL log")
-            w.appendLine("# exported: $stamp")
-            w.appendLine("# calibration: ${s.cal.selectedName ?: "none"}")
-            w.appendLine("# spl_offset_db: ${offset ?: "none (levels are dBFS)"}")
-            w.appendLine("# manual_trim_db: ${s.cal.manualTrimDb}")
-            w.appendLine("elapsed_s,descriptor,level_dbfs,leq_dbfs,level_spl,leq_spl")
+        return buildString {
+            appendLine("# AudioAnalyzer SPL log")
+            appendLine("# exported: ${timestamp()}")
+            appendLine("# calibration: ${s.cal.selectedName ?: "none"}")
+            appendLine("# spl_offset_db: ${offset ?: "none (levels are dBFS)"}")
+            appendLine("# manual_trim_db: ${s.cal.manualTrimDb}")
+            appendLine("elapsed_s,descriptor,level_dbfs,leq_dbfs,level_spl,leq_spl")
             for (p in logPoints) {
                 val spl = offset?.let { "%.2f".format(p.instantDbfs + it) } ?: ""
                 val leqSpl = offset?.let { "%.2f".format(p.leqDbfs + it) } ?: ""
-                w.appendLine(
+                appendLine(
                     "%.1f,%s,%.2f,%.2f,%s,%s".format(
                         p.tSec, p.descriptor, p.instantDbfs, p.leqDbfs, spl, leqSpl,
                     ),
                 )
             }
         }
+    }
+
+    /**
+     * The current RTA traces as CSV: raw per-bin dB plus display values with
+     * the per-bin calibration correction applied. Unsmoothed — smoothing is
+     * a display choice that analysis tools can redo. Null if no spectrum yet.
+     */
+    fun buildRtaCsv(): String? {
+        val bins = rtaBins
+        if (bins == 0) return null
+        val s = _state.value
+        val avg = rtaAvg.copyOf(bins)
+        val peak = rtaPeak.copyOf(bins)
+        val corr = RtaMath.calCorrection(
+            s.cal.calibration, s.cal.totalOffsetDb, bins, rtaBinHz,
+        )
+        val unit = if (s.rtaPsd) "dB/Hz" else "dB"
+        return buildString {
+            appendLine("# AudioAnalyzer RTA spectrum")
+            appendLine("# exported: ${timestamp()}")
+            appendLine("# fft_size: ${s.rtaFftSize}, window: ${s.rtaWindow.label}, " +
+                "avg_tau_s: ${s.rtaAvgTauSec}, scaling: ${if (s.rtaPsd) "PSD" else "amplitude"}")
+            appendLine("# bin_hz: $rtaBinHz")
+            appendLine("# calibration: ${s.cal.selectedName ?: "none"}, " +
+                "spl_offset_db: ${s.cal.totalOffsetDb ?: "none"}")
+            appendLine("# corrected = raw + spl_offset - mic_cal_gain(freq)")
+            appendLine("freq_hz,avg_raw_$unit,peak_raw_db,avg_corrected,peak_corrected")
+            for (i in 0 until bins) {
+                appendLine(
+                    "%.3f,%.2f,%.2f,%.2f,%.2f".format(
+                        i * rtaBinHz, avg[i], peak[i],
+                        avg[i] + corr[i], peak[i] + corr[i],
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Writes [content] into the cache and returns a shareable Uri. */
+    fun shareableCsv(prefix: String, content: String): android.net.Uri {
+        val app = getApplication<Application>()
+        val dir = java.io.File(app.cacheDir, "exports").apply { mkdirs() }
+        val file = java.io.File(dir, "${prefix}_${timestamp()}.csv")
+        file.writeText(content)
         return androidx.core.content.FileProvider.getUriForFile(
             app, "org.audioanalyzer.fileprovider", file,
         )
     }
+
+    /** Writes [content] to a user-picked document (Save-to-Files flow). */
+    fun writeCsvTo(uri: android.net.Uri, content: String) {
+        getApplication<Application>().contentResolver.openOutputStream(uri)?.use {
+            it.write(content.toByteArray())
+        }
+    }
+
+    fun exportLogCsv(): android.net.Uri = shareableCsv("spl_log", buildLogCsv())
 
     private fun restart() {
         stop()

@@ -117,6 +117,24 @@ fun LogScreen(viewModel: MainViewModel) {
             ) { Text("Clear") }
         }
 
+        var pendingCsv by androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf<String?>(null)
+        }
+        val saveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/csv"),
+        ) { uri ->
+            val content = pendingCsv
+            if (uri != null && content != null) viewModel.writeCsvTo(uri, content)
+            pendingCsv = null
+        }
+        OutlinedButton(
+            onClick = {
+                pendingCsv = viewModel.buildLogCsv()
+                saveLauncher.launch("spl_log.csv")
+            },
+            enabled = viewModel.logPoints.isNotEmpty(),
+        ) { Text("Save CSV to Files") }
+
         val total = viewModel.logPoints.size
         if (total > 0) {
             val dur = viewModel.logPoints.last().tSec - viewModel.logPoints.first().tSec
