@@ -103,6 +103,12 @@ private:
     // Returns measured sample rate in Hz, or NaN if the window is too small.
     double measuredSampleRateHz() const;
 
+    // Drains the capture ring into the SPL and spectrum processors and
+    // updates the level meters. Caller must hold mutex_. Called from both
+    // snapshot() (10 Hz health poll) and spectrumRead() (fast RTA poll) so
+    // neither depends on the other's cadence.
+    void drainAndProcessLocked();
+
     std::mutex mutex_;  // guards stream_ lifecycle and timestamps_
     std::shared_ptr<oboe::AudioStream> stream_;
     std::deque<TimestampPoint> timestamps_;

@@ -144,6 +144,7 @@ int32_t AudioEngine::spectrumRead(float* avg, float* peak, int32_t maxBins,
     std::lock_guard<std::mutex> lock(mutex_);
     if (!running_.load() || !stream_) return 0;
     if (spectrum_.bins() > maxBins) return 0;
+    drainAndProcessLocked();
     if (!spectrum_.compute()) return 0;
     spectrum_.readAverage(avg, psd);
     spectrum_.readPeak(peak);
@@ -184,6 +185,22 @@ void AudioEngine::onErrorAfterClose(oboe::AudioStream* /*stream*/,
     ALOGW("stream error (disconnect?): %s", oboe::convertToText(error));
     lastError_.store(static_cast<int32_t>(error));
     running_.store(false);
+}
+
+void AudioEngine::drainAndProcessLocked() {
+    if (!ring_ || channelCount_ <= 0) return;
+    const std::size_t drained = ring_->read(scratch_.data(), scratch_.size());
+    if (drained == 0) return;
+    const std::size_t frames = drained / static_cast<std::size_t>(channelCount_);
+    spl_.process(scratch_.data(), frames, channelCount_, 0);
+    spectrum_.feed(scratch_.data(), frames, channelCount_, 0);
+    const int chToMeasure = channelCount_ > 2 ? 2 : channelCount_;
+    for (int ch = 0; ch < chToMeasure; ++ch) {
+        const auto lv = dsp::computeLevels(scratch_.data(), frames,
+                                           channelCount_, ch);
+        rmsDbfs_[ch] = dsp::toDbfs(lv.rms);
+        peakDbfs_[ch] = dsp::toDbfs(lv.peak);
+    }
 }
 
 double AudioEngine::measuredSampleRateHz() const {
@@ -275,20 +292,7 @@ void AudioEngine::snapshot(double* out, std::size_t n) {
             (measured / sampleRateNominal_ - 1.0) * 1e6;
     }
 
-    // Drain new samples; feed the SPL engine and compute levels over them.
-    const std::size_t drained = ring_->read(scratch_.data(), scratch_.size());
-    if (drained > 0 && channelCount_ > 0) {
-        const std::size_t frames = drained / static_cast<std::size_t>(channelCount_);
-        spl_.process(scratch_.data(), frames, channelCount_, 0);
-        spectrum_.feed(scratch_.data(), frames, channelCount_, 0);
-        const int chToMeasure = channelCount_ > 2 ? 2 : channelCount_;
-        for (int ch = 0; ch < chToMeasure; ++ch) {
-            const auto lv = dsp::computeLevels(scratch_.data(), frames,
-                                               channelCount_, ch);
-            rmsDbfs_[ch] = dsp::toDbfs(lv.rms);
-            peakDbfs_[ch] = dsp::toDbfs(lv.peak);
-        }
-    }
+    drainAndProcessLocked();
     out[kRmsDbfsCh0] = rmsDbfs_[0];
     out[kPeakDbfsCh0] = peakDbfs_[0];
     out[kRmsDbfsCh1] = channelCount_ > 1 ? rmsDbfs_[1]

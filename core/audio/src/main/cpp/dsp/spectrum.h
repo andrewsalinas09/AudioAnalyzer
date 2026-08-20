@@ -10,8 +10,8 @@
 namespace aa::dsp {
 
 // RTA spectrum engine: windowed real FFT over the most recent fftSize
-// samples with 50 % hop, exponential averaging in the power domain, and a
-// separate peak-hold trace.
+// samples with 75 % overlap, exponential averaging in the power domain, and
+// a separate peak-hold trace.
 //
 // Normalization conventions (verified in spectrum_test.cpp):
 //  - Amplitude spectrum, dBFS: a full-scale sine reads 0 dBFS at its bin
@@ -51,7 +51,7 @@ private:
 
     double fs_ = 48000.0;
     int fftSize_ = 8192;
-    int hop_ = 4096;
+    int hop_ = 2048;
     double avgAlpha_ = 1.0;
     Window window_;
     std::unique_ptr<RealFft> fft_;

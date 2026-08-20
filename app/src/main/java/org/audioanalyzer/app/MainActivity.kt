@@ -62,6 +62,7 @@ private fun AppRoot() {
 
     val viewModel = viewModel<MainViewModel>()
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(tab) { viewModel.setRtaActive(tab == 1) }
 
     Scaffold(
         bottomBar = {

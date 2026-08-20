@@ -17,7 +17,7 @@ void SpectrumProcessor::configure(double sampleRateHz, int fftSize,
                                   WindowType window, double avgTimeConstSec) {
     fs_ = sampleRateHz;
     fftSize_ = fftSize;
-    hop_ = fftSize / 2;
+    hop_ = fftSize / 4;  // 75 % overlap: a fresh frame every fftSize/4 samples
     window_ = makeWindow(window, static_cast<std::size_t>(fftSize));
     fft_ = std::make_unique<RealFft>(fftSize);
 

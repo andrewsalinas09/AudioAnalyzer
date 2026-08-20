@@ -40,6 +40,8 @@ data class MainUiState(
     val rtaPsd: Boolean = false,
     /** Fractional-octave smoothing denominator (0 = off, 3 = 1/3 oct, ...). */
     val rtaSmoothing: Int = 12,
+    /** True while the RTA tab is visible — enables the fast spectrum poll. */
+    val rtaActive: Boolean = false,
     val rtaVersion: Long = 0,
 )
 
@@ -92,22 +94,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (_state.value.running) {
                     val snap = engine.snapshot()
                     appendLogPoint(snap)
-                    val bins = engine.readSpectrum(rtaAvg, rtaPeak, _state.value.rtaPsd)
-                    if (bins > 0) {
-                        rtaBins = bins
-                        rtaBinHz = snap.sampleRateNominal.toDouble() /
-                            _state.value.rtaFftSize
-                    }
                     _state.update {
                         it.copy(
                             snapshot = snap,
                             running = snap.running,
                             logVersion = it.logVersion + 1,
-                            rtaVersion = if (bins > 0) it.rtaVersion + 1 else it.rtaVersion,
                         )
                     }
                 }
                 delay(pollMs)
+            }
+        }
+        // Fast spectrum poll, decoupled from the 10 Hz health/log cadence:
+        // ~30 fps while the RTA tab is visible and the stream runs. The
+        // native read drains the capture ring itself, so RTA update rate is
+        // limited only by the FFT hop (fftSize/4 samples).
+        viewModelScope.launch {
+            while (isActive) {
+                val s = _state.value
+                if (s.running && s.rtaActive) {
+                    val bins = engine.readSpectrum(rtaAvg, rtaPeak, s.rtaPsd)
+                    if (bins > 0) {
+                        rtaBins = bins
+                        rtaBinHz = (s.snapshot?.sampleRateNominal ?: 48000)
+                            .toDouble() / s.rtaFftSize
+                        _state.update { it.copy(rtaVersion = it.rtaVersion + 1) }
+                    }
+                    delay(33)
+                } else {
+                    delay(200)
+                }
             }
         }
     }
@@ -179,6 +195,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setRtaPsd(psd: Boolean) = _state.update { it.copy(rtaPsd = psd) }
+
+    fun setRtaActive(active: Boolean) = _state.update { it.copy(rtaActive = active) }
 
     fun setRtaSmoothing(denominator: Int) =
         _state.update { it.copy(rtaSmoothing = denominator) }
