@@ -9,6 +9,7 @@
 
 #include "CallbackStats.h"
 #include "SpscRing.h"
+#include "spl.h"
 
 namespace aa {
 
@@ -42,7 +43,18 @@ enum SnapshotField : int {
     kPeakDbfsCh1 = 24,
     kLastErrorCode = 25,    // oboe::Result as int, 0 = OK
     kInputPresetActual = 26,
-    kSnapshotSize = 27,
+    // SPL engine (channel 0, weighted dBFS; Kotlin adds the cal offset).
+    kSplWeighting = 27,      // dsp::Weighting enum value
+    kSplTimeWeighting = 28,  // dsp::TimeWeighting enum value
+    kSplInstantDb = 29,      // time-weighted level (NaN until primed)
+    kSplLeqDb = 30,
+    kSplLmaxDb = 31,
+    kSplLminDb = 32,
+    kSplL10Db = 33,
+    kSplL50Db = 34,
+    kSplL90Db = 35,
+    kSplElapsedSec = 36,
+    kSnapshotSize = 37,
 };
 
 // Owns the Oboe input stream. The audio callback only touches the SPSC ring
@@ -60,6 +72,11 @@ public:
                   int32_t inputPreset);
     void stop();
     void snapshot(double* out, std::size_t n);
+
+    // SPL engine configuration (applies immediately if a stream is running,
+    // and to every subsequently started stream). Values are the dsp enums.
+    void splConfigure(int32_t weighting, int32_t timeWeighting);
+    void splResetStats();
 
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream* stream,
                                           void* audioData,
@@ -84,6 +101,11 @@ private:
 
     std::unique_ptr<SpscRing> ring_;
     CallbackStats cbStats_;
+
+    // Fed from the snapshot drain (never from the audio callback).
+    dsp::SplProcessor spl_;
+    int32_t splWeighting_ = static_cast<int32_t>(dsp::Weighting::A);
+    int32_t splTimeWeighting_ = static_cast<int32_t>(dsp::TimeWeighting::Fast);
 
     std::atomic<bool> running_{false};
     std::atomic<int64_t> framesRead_{0};

@@ -21,4 +21,8 @@ internal object NativeEngine {
     external fun nativeSnapshot(out: DoubleArray)
 
     external fun nativeSnapshotSize(): Int
+
+    external fun nativeSplConfigure(weighting: Int, timeWeighting: Int)
+
+    external fun nativeSplResetStats()
 }

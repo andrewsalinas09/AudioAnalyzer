@@ -97,11 +97,31 @@ int32_t AudioEngine::start(int32_t deviceId, int32_t sampleRate,
         return static_cast<int32_t>(startResult);
     }
 
+    spl_.configure(sampleRateNominal_,
+                   static_cast<dsp::Weighting>(splWeighting_),
+                   static_cast<dsp::TimeWeighting>(splTimeWeighting_));
+
     running_.store(true);
     ALOGI("input started: rate=%d ch=%d burst=%d api=%d mmap=%d preset=%d",
           sampleRateNominal_, channelCount_, framesPerBurst_, audioApi_,
           mmapUsed_, inputPresetActual_);
     return 0;
+}
+
+void AudioEngine::splConfigure(int32_t weighting, int32_t timeWeighting) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    splWeighting_ = weighting;
+    splTimeWeighting_ = timeWeighting;
+    if (running_.load() && stream_) {
+        spl_.configure(sampleRateNominal_,
+                       static_cast<dsp::Weighting>(weighting),
+                       static_cast<dsp::TimeWeighting>(timeWeighting));
+    }
+}
+
+void AudioEngine::splResetStats() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    spl_.resetStats();
 }
 
 void AudioEngine::stop() {
@@ -178,6 +198,12 @@ void AudioEngine::snapshot(double* out, std::size_t n) {
     out[kMeasuredSampleRateHz] = std::numeric_limits<double>::quiet_NaN();
     out[kClockDriftPpm] = std::numeric_limits<double>::quiet_NaN();
     out[kMmapUsed] = -1.0;
+    out[kSplWeighting] = splWeighting_;
+    out[kSplTimeWeighting] = splTimeWeighting_;
+    for (int f : {kSplInstantDb, kSplLeqDb, kSplLmaxDb, kSplLminDb, kSplL10Db,
+                  kSplL50Db, kSplL90Db}) {
+        out[f] = std::numeric_limits<double>::quiet_NaN();
+    }
     if (!running) return;
 
     out[kAudioApi] = audioApi_;
@@ -218,10 +244,11 @@ void AudioEngine::snapshot(double* out, std::size_t n) {
             (measured / sampleRateNominal_ - 1.0) * 1e6;
     }
 
-    // Drain new samples and compute levels over them.
+    // Drain new samples; feed the SPL engine and compute levels over them.
     const std::size_t drained = ring_->read(scratch_.data(), scratch_.size());
     if (drained > 0 && channelCount_ > 0) {
         const std::size_t frames = drained / static_cast<std::size_t>(channelCount_);
+        spl_.process(scratch_.data(), frames, channelCount_, 0);
         const int chToMeasure = channelCount_ > 2 ? 2 : channelCount_;
         for (int ch = 0; ch < chToMeasure; ++ch) {
             const auto lv = dsp::computeLevels(scratch_.data(), frames,
@@ -236,6 +263,18 @@ void AudioEngine::snapshot(double* out, std::size_t n) {
                                          : std::numeric_limits<double>::quiet_NaN();
     out[kPeakDbfsCh1] = channelCount_ > 1 ? peakDbfs_[1]
                                           : std::numeric_limits<double>::quiet_NaN();
+
+    const auto spl = spl_.stats();
+    out[kSplWeighting] = splWeighting_;
+    out[kSplTimeWeighting] = splTimeWeighting_;
+    out[kSplInstantDb] = spl.instantDb;
+    out[kSplLeqDb] = spl.leqDb;
+    out[kSplLmaxDb] = spl.lmaxDb;
+    out[kSplLminDb] = spl.lminDb;
+    out[kSplL10Db] = spl.l10Db;
+    out[kSplL50Db] = spl.l50Db;
+    out[kSplL90Db] = spl.l90Db;
+    out[kSplElapsedSec] = spl.elapsedSec;
 }
 
 }  // namespace aa

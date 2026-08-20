@@ -36,4 +36,16 @@ Java_org_audioanalyzer_core_audio_NativeEngine_nativeSnapshotSize(
     return aa::kSnapshotSize;
 }
 
+JNIEXPORT void JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeSplConfigure(
+    JNIEnv* /*env*/, jobject /*thiz*/, jint weighting, jint timeWeighting) {
+    aa::AudioEngine::instance().splConfigure(weighting, timeWeighting);
+}
+
+JNIEXPORT void JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeSplResetStats(
+    JNIEnv* /*env*/, jobject /*thiz*/) {
+    aa::AudioEngine::instance().splResetStats();
+}
+
 }  // extern "C"

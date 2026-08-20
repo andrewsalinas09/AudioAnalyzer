@@ -33,31 +33,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.isGranted
-import com.google.accompanist.permissions.rememberPermissionState
 import org.audioanalyzer.core.audio.EngineSnapshot
 import org.audioanalyzer.core.audio.InputPreset
 
-@OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun AudioHealthScreen(viewModel: AudioHealthViewModel) {
-    val micPermission = rememberPermissionState(android.Manifest.permission.RECORD_AUDIO)
-    if (!micPermission.status.isGranted) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text("AudioAnalyzer needs microphone access to measure anything.")
-            Button(
-                onClick = { micPermission.launchPermissionRequest() },
-                modifier = Modifier.padding(top = 16.dp),
-            ) { Text("Grant microphone access") }
-        }
-        return
-    }
-
+fun AudioHealthScreen(viewModel: MainViewModel) {
     val state by viewModel.state.collectAsState()
     Column(
         modifier = Modifier
@@ -119,7 +99,7 @@ fun AudioHealthScreen(viewModel: AudioHealthViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DeviceSelector(state: AudioHealthUiState, viewModel: AudioHealthViewModel) {
+private fun DeviceSelector(state: MainUiState, viewModel: MainViewModel) {
     var expanded by remember { mutableStateOf(false) }
     val selectedLabel = state.devices.firstOrNull { it.id == state.selectedDeviceId }?.label
         ?: "Platform default"
@@ -155,7 +135,7 @@ private fun DeviceSelector(state: AudioHealthUiState, viewModel: AudioHealthView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PresetSelector(state: AudioHealthUiState, viewModel: AudioHealthViewModel) {
+private fun PresetSelector(state: MainUiState, viewModel: MainViewModel) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(

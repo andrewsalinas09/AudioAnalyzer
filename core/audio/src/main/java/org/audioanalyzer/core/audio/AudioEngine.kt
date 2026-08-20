@@ -28,6 +28,13 @@ class AudioEngine {
 
     fun stop() = NativeEngine.nativeStop()
 
+    /** Applies immediately if running, and to every later [start]. */
+    fun configureSpl(weighting: Weighting, timeWeighting: TimeWeighting) =
+        NativeEngine.nativeSplConfigure(weighting.nativeValue, timeWeighting.nativeValue)
+
+    /** Clears Leq/Lmax/Lmin/LN/elapsed; the live level is unaffected. */
+    fun resetSplStats() = NativeEngine.nativeSplResetStats()
+
     /**
      * Polls current engine state. Each call also collects one hardware
      * timestamp, so poll at a steady cadence (~10 Hz) for the clock-drift

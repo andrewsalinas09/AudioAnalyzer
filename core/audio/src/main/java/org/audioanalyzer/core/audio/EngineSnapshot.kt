@@ -44,6 +44,8 @@ data class EngineSnapshot(
     val lastErrorCode: Int,
     /** oboe::InputPreset value actually granted, see [InputPreset]. */
     val inputPresetActual: Int,
+    /** SPL engine statistics (channel 0, weighted dBFS). */
+    val spl: SplStats,
 ) {
     val isUnprocessed: Boolean
         get() = inputPresetActual == InputPreset.UNPROCESSED.oboeValue
@@ -77,6 +79,18 @@ data class EngineSnapshot(
             peakDbfsCh1 = a[24],
             lastErrorCode = a[25].toInt(),
             inputPresetActual = a[26].toInt(),
+            spl = SplStats(
+                weighting = Weighting.entries.first { it.nativeValue == a[27].toInt() },
+                timeWeighting = TimeWeighting.entries.first { it.nativeValue == a[28].toInt() },
+                instantDb = a[29],
+                leqDb = a[30],
+                lmaxDb = a[31],
+                lminDb = a[32],
+                l10Db = a[33],
+                l50Db = a[34],
+                l90Db = a[35],
+                elapsedSec = a[36],
+            ),
         )
     }
 }

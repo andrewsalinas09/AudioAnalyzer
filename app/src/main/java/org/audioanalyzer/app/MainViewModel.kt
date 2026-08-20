@@ -1,6 +1,7 @@
 package org.audioanalyzer.app
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
@@ -15,8 +16,10 @@ import org.audioanalyzer.core.audio.DeviceCatalog
 import org.audioanalyzer.core.audio.EngineSnapshot
 import org.audioanalyzer.core.audio.InputDevice
 import org.audioanalyzer.core.audio.InputPreset
+import org.audioanalyzer.core.audio.TimeWeighting
+import org.audioanalyzer.core.audio.Weighting
 
-data class AudioHealthUiState(
+data class MainUiState(
     val devices: List<InputDevice> = emptyList(),
     val selectedDeviceId: Int = 0, // 0 = platform default
     val inputPreset: InputPreset = InputPreset.UNPROCESSED,
@@ -24,13 +27,17 @@ data class AudioHealthUiState(
     val running: Boolean = false,
     val snapshot: EngineSnapshot? = null,
     val startErrorCode: Int? = null,
+    val weighting: Weighting = Weighting.A,
+    val timeWeighting: TimeWeighting = TimeWeighting.FAST,
+    val cal: CalibrationRepository.CalState = CalibrationRepository.CalState(),
 )
 
-class AudioHealthViewModel(application: Application) : AndroidViewModel(application) {
+class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val engine = AudioEngine()
-    private val _state = MutableStateFlow(AudioHealthUiState())
-    val state: StateFlow<AudioHealthUiState> = _state.asStateFlow()
+    private val calRepo = CalibrationRepository(application)
+    private val _state = MutableStateFlow(MainUiState())
+    val state: StateFlow<MainUiState> = _state.asStateFlow()
 
     /** Poll cadence; the clock-drift regression assumes a steady ~10 Hz. */
     private val pollMs = 100L
@@ -38,8 +45,12 @@ class AudioHealthViewModel(application: Application) : AndroidViewModel(applicat
     init {
         refreshDevices()
         _state.update {
-            it.copy(unprocessedSupported = DeviceCatalog.supportsUnprocessed(application))
+            it.copy(
+                unprocessedSupported = DeviceCatalog.supportsUnprocessed(application),
+                cal = calRepo.load(),
+            )
         }
+        engine.configureSpl(_state.value.weighting, _state.value.timeWeighting)
         viewModelScope.launch {
             while (isActive) {
                 if (_state.value.running) {
@@ -82,6 +93,38 @@ class AudioHealthViewModel(application: Application) : AndroidViewModel(applicat
     fun stop() {
         engine.stop()
         _state.update { it.copy(running = false) }
+    }
+
+    // --- SPL ---
+
+    fun setWeighting(w: Weighting) {
+        _state.update { it.copy(weighting = w) }
+        engine.configureSpl(w, _state.value.timeWeighting)
+    }
+
+    fun setTimeWeighting(tw: TimeWeighting) {
+        _state.update { it.copy(timeWeighting = tw) }
+        engine.configureSpl(_state.value.weighting, tw)
+    }
+
+    fun resetSplStats() = engine.resetSplStats()
+
+    // --- Calibration ---
+
+    fun importCalibration(uri: Uri) {
+        _state.update { it.copy(cal = calRepo.import(uri)) }
+    }
+
+    fun selectCalibration(name: String?) {
+        _state.update { it.copy(cal = calRepo.select(name)) }
+    }
+
+    fun setManualTrim(db: Double) {
+        _state.update { it.copy(cal = calRepo.setManualTrim(db)) }
+    }
+
+    fun deleteCalibration(name: String) {
+        _state.update { it.copy(cal = calRepo.delete(name)) }
     }
 
     private fun restart() {

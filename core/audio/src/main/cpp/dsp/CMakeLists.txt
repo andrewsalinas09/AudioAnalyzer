@@ -17,12 +17,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(aa_dsp STATIC
         levels.cpp
+        weighting.cpp
+        spl.cpp
 )
 target_include_directories(aa_dsp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(AA_DSP_STANDALONE)
     enable_testing()
-    add_executable(aa_dsp_tests tests/levels_test.cpp)
-    target_link_libraries(aa_dsp_tests PRIVATE aa_dsp)
-    add_test(NAME levels COMMAND aa_dsp_tests)
+    foreach(t levels weighting spl)
+        add_executable(${t}_test tests/${t}_test.cpp)
+        target_link_libraries(${t}_test PRIVATE aa_dsp)
+        add_test(NAME ${t} COMMAND ${t}_test)
+    endforeach()
 endif()
