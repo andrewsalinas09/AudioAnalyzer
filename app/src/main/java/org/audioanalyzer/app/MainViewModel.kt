@@ -427,11 +427,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(irPhase = IrPhase.IDLE, irProgress = 0f, irRepNow = 0) }
     }
 
+    /**
+     * Mic-cal shape correction for the IR magnitude (dB to add per bin), or
+     * null with no cal file. Only the frequency shape applies — IR magnitude
+     * is relative, so the absolute SPL offset is deliberately excluded.
+     */
+    fun irCalCorrection(): FloatArray? {
+        val res = _state.value.irResult ?: return null
+        val cal = _state.value.cal.calibration ?: return null
+        if (irMagBins == 0) return null
+        return RtaMath.calCorrection(cal, null, irMagBins, res.magBinHz)
+    }
+
     /** Frequency response of the (averaged) IR as CSV. Null before a result. */
     fun buildIrCsv(): String? {
         val res = _state.value.irResult ?: return null
         if (irMagBins == 0) return null
         val s = _state.value
+        val calCorr = irCalCorrection()
         fun ms(v: Double) = if (v.isNaN()) "n/a" else "%.1f".format(v * 1000)
         return buildString {
             appendLine("# AudioAnalyzer impulse-response measurement")
@@ -443,10 +456,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "edt_ms: ${ms(res.edtSec)}")
             appendLine("# c50_db: %.1f, c80_db: %.1f".format(res.c50Db, res.c80Db))
             appendLine("# sync_quality: %.2f / %.2f".format(res.preambleQuality, res.postambleQuality))
-            appendLine("# magnitude is uncalibrated relative dB (windowed IR)")
-            appendLine("freq_hz,mag_db,group_delay_ms")
-            for (i in 0 until irMagBins) {
-                appendLine("%.3f,%.2f,%.3f".format(i * res.magBinHz, irMagDb[i], irGdMs[i]))
+            appendLine("# magnitude is relative dB (windowed IR)")
+            if (calCorr != null) {
+                appendLine("# mag_db_cal = mag_db - mic_cal_gain(freq), " +
+                    "cal file: ${s.cal.selectedName}")
+                appendLine("freq_hz,mag_db,mag_db_cal,group_delay_ms")
+                for (i in 0 until irMagBins) {
+                    appendLine("%.3f,%.2f,%.2f,%.3f".format(
+                        i * res.magBinHz, irMagDb[i], irMagDb[i] + calCorr[i], irGdMs[i]))
+                }
+            } else {
+                appendLine("freq_hz,mag_db,group_delay_ms")
+                for (i in 0 until irMagBins) {
+                    appendLine("%.3f,%.2f,%.3f".format(i * res.magBinHz, irMagDb[i], irGdMs[i]))
+                }
             }
         }
     }

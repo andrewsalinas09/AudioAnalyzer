@@ -224,6 +224,7 @@ fun IrScreen(viewModel: MainViewModel) {
                 }
             }
 
+            val calCorr = remember(state.cal, state.irVersion) { viewModel.irCalCorrection() }
             when (view) {
                 0 -> EtcPlot(
                     viewModel, res.irSamples / res.fs,
@@ -231,7 +232,8 @@ fun IrScreen(viewModel: MainViewModel) {
                 )
                 else -> IrFreqPlot(
                     viewModel, res.magBinHz, groupDelay = view == 2,
-                    Modifier.fillMaxWidth().height(280.dp),
+                    calCorr = calCorr,
+                    modifier = Modifier.fillMaxWidth().height(280.dp),
                 )
             }
         }
@@ -303,6 +305,7 @@ private fun IrFreqPlot(
     viewModel: MainViewModel,
     binHz: Double,
     groupDelay: Boolean,
+    calCorr: FloatArray?,
     modifier: Modifier,
 ) {
     val textMeasurer = rememberTextMeasurer()
@@ -318,7 +321,12 @@ private fun IrFreqPlot(
         val plotH = size.height - bottomPad
         val bins = viewModel.irMagBins
         if (bins == 0 || binHz <= 0 || plotW <= 0) return@Canvas
-        val data = if (groupDelay) viewModel.irGdMs else viewModel.irMagDb
+        // Mic-cal shape applies to magnitude only (not group delay).
+        val data = when {
+            groupDelay -> viewModel.irGdMs
+            calCorr != null -> FloatArray(bins) { viewModel.irMagDb[it] + calCorr[it] }
+            else -> viewModel.irMagDb
+        }
 
         val logMin = log10(20.0)
         val logMax = log10(20000.0)
@@ -389,7 +397,11 @@ private fun IrFreqPlot(
         drawPath(path, traceColor, style = Stroke(2.dp.toPx()))
         drawText(
             textMeasurer,
-            if (groupDelay) "Excess group delay (ms)" else "Magnitude (dB, uncal.)",
+            when {
+                groupDelay -> "Excess group delay (ms)"
+                calCorr != null -> "Magnitude (rel dB, mic cal applied)"
+                else -> "Magnitude (rel dB, no mic cal)"
+            },
             style = labelStyle,
             topLeft = Offset(leftPad + 4.dp.toPx(), 2.dp.toPx()),
         )
