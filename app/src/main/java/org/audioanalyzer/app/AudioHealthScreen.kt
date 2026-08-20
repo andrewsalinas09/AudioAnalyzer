@@ -86,11 +86,24 @@ fun AudioHealthScreen(viewModel: AudioHealthViewModel) {
                 color = MaterialTheme.colorScheme.error,
             )
         }
-        if (!state.unprocessedSupported) {
+        // Some OEMs (e.g. Samsung) grant the Unprocessed preset per-stream
+        // without declaring the global property, so only warn when the
+        // running stream actually failed to get it.
+        val streamNotUnprocessed = state.running &&
+            state.snapshot?.let { !it.isUnprocessed } == true &&
+            state.inputPreset == InputPreset.UNPROCESSED
+        if (streamNotUnprocessed) {
             Text(
-                "This device does not declare UNPROCESSED input support — " +
-                    "the platform may apply AGC/filtering to the built-in mic.",
+                "The stream was NOT granted the Unprocessed preset — the " +
+                    "platform may be applying AGC/filtering to this input.",
                 color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        } else if (!state.unprocessedSupported && !state.running) {
+            Text(
+                "This device does not declare global UNPROCESSED support; " +
+                    "after starting, check the Input preset row — a per-stream " +
+                    "grant (common on Samsung) is what actually counts.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
