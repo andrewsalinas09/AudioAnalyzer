@@ -106,12 +106,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Poll unconditionally: the snapshot also carries generator
                 // status, which is valid while the input stream is stopped.
                 val snap = engine.snapshot()
-                if (_state.value.running) appendLogPoint(snap)
+                val appended = snap.running && appendLogPoint(snap)
                 _state.update {
                     it.copy(
                         snapshot = snap,
                         running = snap.running,
-                        logVersion = it.logVersion + 1,
+                        // Only bump when a point landed: an unconditional bump
+                        // makes the state differ every tick, forcing 10 Hz
+                        // recompositions even when idle (which killed dropdown
+                        // popups). With it gated, StateFlow's equality check
+                        // suppresses idle emissions entirely.
+                        logVersion = if (appended) it.logVersion + 1 else it.logVersion,
                     )
                 }
                 delay(pollMs)
@@ -291,9 +296,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- SPL time log ---
 
-    private fun appendLogPoint(snap: EngineSnapshot) {
+    /** Returns true if a point was appended. */
+    private fun appendLogPoint(snap: EngineSnapshot): Boolean {
         val level = snap.spl.instantDb
-        if (level.isNaN()) return
+        if (level.isNaN()) return false
         val now = android.os.SystemClock.elapsedRealtime()
         val start = logStartRealtimeMs ?: now.also { logStartRealtimeMs = it }
         logPoints.addLast(
@@ -305,6 +311,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ),
         )
         while (logPoints.size > maxLogPoints) logPoints.removeFirst()
+        return true
     }
 
     /** The most recent [windowSec] seconds of the log (all of it for null). */
