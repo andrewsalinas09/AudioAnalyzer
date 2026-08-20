@@ -415,16 +415,43 @@ int32_t AudioEngine::irAnalyze(double f1, double f2, double durationSec) {
     auto ir = dsp::deconvolve(
         segment, reference,
         leadN + static_cast<std::size_t>((tail + 0.2) * fs));
-    auto metrics = dsp::analyzeIr(ir, fs);
+
+    // Coherent averaging across repetitions: align each new IR to the
+    // running average with sub-sample precision, then accumulate. Metrics
+    // and the frequency response are computed from the average.
+    std::vector<float> averaged;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (irAvgCount_ == 0 || irAccum_.size() != ir.size()) {
+            irAccum_.assign(ir.begin(), ir.end());
+            irAvgCount_ = 1;
+        } else {
+            std::vector<float> accumF(irAccum_.size());
+            for (std::size_t i = 0; i < irAccum_.size(); ++i) {
+                accumF[i] = static_cast<float>(irAccum_[i] / irAvgCount_);
+            }
+            const auto aligned = dsp::alignTo(accumF, ir, 96);
+            for (std::size_t i = 0; i < irAccum_.size(); ++i) {
+                irAccum_[i] += aligned[i];
+            }
+            ++irAvgCount_;
+        }
+        averaged.resize(irAccum_.size());
+        for (std::size_t i = 0; i < irAccum_.size(); ++i) {
+            averaged[i] = static_cast<float>(irAccum_[i] / irAvgCount_);
+        }
+    }
+
+    auto metrics = dsp::analyzeIr(averaged, fs);
 
     constexpr int kMagFft = 16384;
     std::vector<float> magDb(kMagFft / 2 + 1), gdMs(kMagFft / 2 + 1);
-    dsp::irFrequencyResponse(ir, fs, kMagFft, 0.005, 0.5, magDb.data(),
+    dsp::irFrequencyResponse(averaged, fs, kMagFft, 0.005, 0.5, magDb.data(),
                              gdMs.data());
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        ir_ = std::move(ir);
+        ir_ = std::move(averaged);
         irMetrics_ = metrics;
         irMagDb_ = std::move(magDb);
         irGdMs_ = std::move(gdMs);
@@ -458,6 +485,13 @@ void AudioEngine::irSummary(double* out, std::size_t n) {
     out[12] = static_cast<double>(ir_.size());
     out[13] = static_cast<double>(irMagDb_.size());
     out[14] = irMagBinHz_;
+    out[15] = irAvgCount_;
+}
+
+void AudioEngine::irResetAverage() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    irAccum_.clear();
+    irAvgCount_ = 0;
 }
 
 int32_t AudioEngine::irEtc(float* out, int32_t n) {

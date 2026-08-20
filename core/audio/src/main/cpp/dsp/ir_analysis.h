@@ -33,4 +33,11 @@ void irFrequencyResponse(const std::vector<float>& ir, double fs,
                          int fftSize, double preSec, double windowSec,
                          float* magDb, float* gdMs);
 
+// Aligns x to ref for coherent averaging: cross-correlates a window around
+// ref's peak over lags within +-maxShift of the coarse (peak-to-peak) offset,
+// refines to sub-sample precision (parabolic), and returns x shifted by the
+// fractional lag (linear interpolation), same length as ref.
+std::vector<float> alignTo(const std::vector<float>& ref,
+                           const std::vector<float>& x, int maxShift);
+
 }  // namespace aa::dsp

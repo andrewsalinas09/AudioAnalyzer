@@ -75,6 +75,15 @@ fun IrScreen(viewModel: MainViewModel) {
                 },
             )
         }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(1, 2, 4, 8).forEach { n ->
+                FilterChip(
+                    selected = state.irRepeat == n,
+                    onClick = { viewModel.setIrRepeat(n) },
+                    label = { Text(if (n == 1) "Single" else "Avg ×$n") },
+                )
+            }
+        }
         Text(
             "Level %.1f dBFS (set on the Gen tab) — output: %s".format(
                 state.genLevelDb,
@@ -114,7 +123,8 @@ fun IrScreen(viewModel: MainViewModel) {
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
-                if (state.irPhase == IrPhase.ANALYZING) "Analyzing…" else "Capturing sweep…",
+                (if (state.irRepeat > 1) "Rep ${state.irRepNow}/${state.irRepeat} — " else "") +
+                    if (state.irPhase == IrPhase.ANALYZING) "analyzing…" else "capturing sweep…",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -142,7 +152,39 @@ fun IrScreen(viewModel: MainViewModel) {
                         "Sync quality (pre / post)",
                         "%.2f / %.2f".format(res.preambleQuality, res.postambleQuality),
                     )
+                    if (res.avgCount > 1) IrRow("Coherent averages", "${res.avgCount}")
                 }
+            }
+
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var pendingCsv by remember { mutableStateOf<String?>(null) }
+            val saveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/csv"),
+            ) { uri ->
+                val content = pendingCsv
+                if (uri != null && content != null) viewModel.writeCsvTo(uri, content)
+                pendingCsv = null
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = {
+                    viewModel.buildIrCsv()?.let { csv ->
+                        val uri = viewModel.shareableCsv("ir_response", csv)
+                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/csv"
+                            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(
+                            android.content.Intent.createChooser(send, "Share IR response"),
+                        )
+                    }
+                }) { Text("Share CSV") }
+                OutlinedButton(onClick = {
+                    viewModel.buildIrCsv()?.let { csv ->
+                        pendingCsv = csv
+                        saveLauncher.launch("ir_response.csv")
+                    }
+                }) { Text("Save CSV") }
             }
 
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

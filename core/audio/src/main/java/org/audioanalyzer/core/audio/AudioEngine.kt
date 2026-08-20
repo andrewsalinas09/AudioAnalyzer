@@ -85,7 +85,10 @@ class AudioEngine {
 
     fun irCapturedSec(): Double = NativeEngine.nativeIrCapturedSec()
 
-    /** Heavy: run on a worker dispatcher. */
+    /** Clears the coherent average; call before the first repetition. */
+    fun irResetAverage() = NativeEngine.nativeIrResetAverage()
+
+    /** Heavy: run on a worker dispatcher. Accumulates into the average. */
     fun irAnalyze(f1: Double, f2: Double, durationSec: Double): Int =
         NativeEngine.nativeIrAnalyze(f1, f2, durationSec)
 

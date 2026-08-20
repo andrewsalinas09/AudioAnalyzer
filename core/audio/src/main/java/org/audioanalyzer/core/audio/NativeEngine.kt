@@ -56,6 +56,8 @@ internal object NativeEngine {
 
     external fun nativeIrCapturedSec(): Double
 
+    external fun nativeIrResetAverage()
+
     external fun nativeIrAnalyze(f1: Double, f2: Double, durationSec: Double): Int
 
     external fun nativeIrSummary(out: DoubleArray)

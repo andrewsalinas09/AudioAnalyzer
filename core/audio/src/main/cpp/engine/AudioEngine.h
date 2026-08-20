@@ -128,11 +128,15 @@ public:
     double irCapturedSec() const;
     // f1/f2/durationSec must match the played sweep.
     int32_t irAnalyze(double f1, double f2, double durationSec);
+    // Resets the coherent IR average; call before the first repetition of a
+    // measurement series. irAnalyze accumulates each analyzed IR into the
+    // average (sub-sample aligned) and reports metrics of the average.
+    void irResetAverage();
     // Summary layout (doubles): 0 fs, 1 capturedSec, 2 peakSample, 3 peakDb,
     // 4 edtSec, 5 t20Sec, 6 t30Sec, 7 c50Db, 8 c80Db, 9 driftPpm,
     // 10 preambleQuality, 11 postambleQuality, 12 irSamples, 13 magBins,
-    // 14 magBinHz. Mirrored by IrSummary in Kotlin.
-    static constexpr int kIrSummarySize = 15;
+    // 14 magBinHz, 15 avgCount. Mirrored by IrSummary in Kotlin.
+    static constexpr int kIrSummarySize = 16;
     void irSummary(double* out, std::size_t n);
     // Fills out[n] with the decimated ETC in dB (0 = IR start).
     int32_t irEtc(float* out, int32_t n);
@@ -207,7 +211,9 @@ private:
     double irCaptureFs_ = 48000.0;
     std::atomic<bool> irCapturing_{false};
     std::atomic<int32_t> irState_{0};
-    std::vector<float> ir_;             // deconvolved impulse response
+    std::vector<float> ir_;             // averaged impulse response
+    std::vector<double> irAccum_;       // coherent accumulation buffer
+    int irAvgCount_ = 0;
     dsp::IrMetrics irMetrics_{};
     std::vector<float> irMagDb_;
     std::vector<float> irGdMs_;

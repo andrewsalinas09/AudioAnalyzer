@@ -131,6 +131,12 @@ Java_org_audioanalyzer_core_audio_NativeEngine_nativeIrCapturedSec(
     return aa::AudioEngine::instance().irCapturedSec();
 }
 
+JNIEXPORT void JNICALL
+Java_org_audioanalyzer_core_audio_NativeEngine_nativeIrResetAverage(
+    JNIEnv* /*env*/, jobject /*thiz*/) {
+    aa::AudioEngine::instance().irResetAverage();
+}
+
 JNIEXPORT jint JNICALL
 Java_org_audioanalyzer_core_audio_NativeEngine_nativeIrAnalyze(
     JNIEnv* /*env*/, jobject /*thiz*/, jdouble f1, jdouble f2,

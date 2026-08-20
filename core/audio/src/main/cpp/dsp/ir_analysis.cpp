@@ -116,6 +116,58 @@ void etcTrace(const std::vector<float>& ir, float* out, std::size_t n) {
     }
 }
 
+std::vector<float> alignTo(const std::vector<float>& ref,
+                           const std::vector<float>& x, int maxShift) {
+    std::vector<float> out(ref.size(), 0.0f);
+    if (ref.size() < 64 || x.size() < 64) return out;
+
+    const std::size_t pr = peakIndex(ref);
+    const std::size_t px = peakIndex(x);
+    const long coarse = static_cast<long>(px) - static_cast<long>(pr);
+
+    // Correlate over a window around the reference peak.
+    const long w = 1024;
+    const long from = std::max<long>(0, static_cast<long>(pr) - w);
+    const long to = std::min<long>(static_cast<long>(ref.size()),
+                                   static_cast<long>(pr) + w);
+    double best = -1;
+    long bestLag = coarse;
+    std::vector<double> corr(static_cast<std::size_t>(2 * maxShift + 1), 0.0);
+    for (long lag = coarse - maxShift; lag <= coarse + maxShift; ++lag) {
+        double acc = 0;
+        for (long i = from; i < to; ++i) {
+            const long j = i + lag;
+            if (j < 0 || j >= static_cast<long>(x.size())) continue;
+            acc += static_cast<double>(ref[static_cast<std::size_t>(i)]) *
+                   x[static_cast<std::size_t>(j)];
+        }
+        corr[static_cast<std::size_t>(lag - (coarse - maxShift))] = acc;
+        if (acc > best) {
+            best = acc;
+            bestLag = lag;
+        }
+    }
+    double lag = static_cast<double>(bestLag);
+    const long k = bestLag - (coarse - maxShift);
+    if (k > 0 && k + 1 < static_cast<long>(corr.size())) {
+        const double a = corr[static_cast<std::size_t>(k - 1)];
+        const double b = corr[static_cast<std::size_t>(k)];
+        const double c = corr[static_cast<std::size_t>(k + 1)];
+        const double denom = a - 2 * b + c;
+        if (std::fabs(denom) > 1e-18) lag += 0.5 * (a - c) / denom;
+    }
+
+    // out[i] = x[i + lag], linear interpolation.
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        const double src = static_cast<double>(i) + lag;
+        if (src < 0 || src >= static_cast<double>(x.size()) - 1) continue;
+        const auto s = static_cast<std::size_t>(src);
+        const double frac = src - static_cast<double>(s);
+        out[i] = static_cast<float>(x[s] * (1.0 - frac) + x[s + 1] * frac);
+    }
+    return out;
+}
+
 void irFrequencyResponse(const std::vector<float>& ir, double fs,
                          int fftSize, double preSec, double windowSec,
                          float* magDb, float* gdMs) {

@@ -59,6 +59,9 @@ data class MainUiState(
     val irSweepF1: Double = 20.0,
     val irSweepF2: Double = 20000.0,
     val irSweepDurSec: Double = 5.0,
+    /** Repetitions to coherently average (local playback only). */
+    val irRepeat: Int = 1,
+    val irRepNow: Int = 0,
     val irPhase: IrPhase = IrPhase.IDLE,
     val irProgress: Float = 0f,
     val irError: String? = null,
@@ -343,52 +346,109 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return
             }
         }
+        engine.irResetAverage()
         _state.update { it.copy(irPhase = IrPhase.MEASURING, irError = null, irProgress = 0f) }
 
-        viewModelScope.launch {
-            // Wait for the capture to fill.
-            while (isActive && engine.irState() == org.audioanalyzer.core.audio.IrState.CAPTURING) {
-                _state.update {
-                    it.copy(irProgress = (engine.irCapturedSec() / captureSec).toFloat())
+        // Listen-only can't coordinate repetitions with a remote emitter.
+        val reps = if (playLocally) s.irRepeat else 1
+
+        irJob = viewModelScope.launch {
+            for (rep in 1..reps) {
+                _state.update { it.copy(irRepNow = rep) }
+                if (rep > 1) {
+                    // Re-arm capture and playback for the next repetition.
+                    delay(400)
+                    if (engine.irBeginCapture(captureSec) != 0 ||
+                        engine.startSweep(
+                            deviceId = _state.value.genOutputDeviceId,
+                            exponential = true,
+                            f1 = _state.value.irSweepF1,
+                            f2 = _state.value.irSweepF2,
+                            durationSec = _state.value.irSweepDurSec,
+                            levelDb = _state.value.genLevelDb,
+                            syncFrame = true,
+                        ) != 0
+                    ) {
+                        _state.update { it.copy(irPhase = IrPhase.FAILED, irError = "rep $rep failed to start") }
+                        return@launch
+                    }
                 }
-                delay(100)
-            }
-            if (engine.irState() != org.audioanalyzer.core.audio.IrState.CAPTURED) {
-                _state.update { it.copy(irPhase = IrPhase.FAILED, irError = "capture interrupted") }
-                return@launch
-            }
-            _state.update { it.copy(irPhase = IrPhase.ANALYZING, irProgress = 1f) }
-            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                engine.irAnalyze(_state.value.irSweepF1, _state.value.irSweepF2,
-                    _state.value.irSweepDurSec)
-            }
-            if (result != 0) {
+                while (isActive && engine.irState() == org.audioanalyzer.core.audio.IrState.CAPTURING) {
+                    _state.update {
+                        it.copy(
+                            irProgress = ((rep - 1) +
+                                (engine.irCapturedSec() / captureSec).toFloat()) / reps,
+                        )
+                    }
+                    delay(100)
+                }
+                if (engine.irState() != org.audioanalyzer.core.audio.IrState.CAPTURED) {
+                    _state.update { it.copy(irPhase = IrPhase.FAILED, irError = "capture interrupted") }
+                    return@launch
+                }
+                _state.update { it.copy(irPhase = IrPhase.ANALYZING) }
+                val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    engine.irAnalyze(_state.value.irSweepF1, _state.value.irSweepF2,
+                        _state.value.irSweepDurSec)
+                }
+                if (result != 0) {
+                    _state.update {
+                        it.copy(
+                            irPhase = IrPhase.FAILED,
+                            irError = if (result == -1) {
+                                "sync frame not detected — increase level or reduce distance"
+                            } else "analysis failed ($result)",
+                        )
+                    }
+                    return@launch
+                }
+                // Publish the running average after every repetition.
+                irEtcValid = engine.irEtc(irEtc) > 0
+                irMagBins = engine.irMag(irMagDb, irGdMs)
                 _state.update {
                     it.copy(
-                        irPhase = IrPhase.FAILED,
-                        irError = if (result == -1) {
-                            "sync frame not detected — increase level or reduce distance"
-                        } else "analysis failed ($result)",
+                        irPhase = if (rep == reps) IrPhase.DONE else IrPhase.MEASURING,
+                        irResult = engine.irSummary(),
+                        irVersion = it.irVersion + 1,
                     )
                 }
-                return@launch
-            }
-            irEtcValid = engine.irEtc(irEtc) > 0
-            irMagBins = engine.irMag(irMagDb, irGdMs)
-            _state.update {
-                it.copy(
-                    irPhase = IrPhase.DONE,
-                    irResult = engine.irSummary(),
-                    irVersion = it.irVersion + 1,
-                )
             }
         }
     }
 
+    private var irJob: kotlinx.coroutines.Job? = null
+
+    fun setIrRepeat(n: Int) = _state.update { it.copy(irRepeat = n) }
+
     fun abortIrMeasurement() {
+        irJob?.cancel()
         engine.irAbort()
         engine.stopGenerator()
-        _state.update { it.copy(irPhase = IrPhase.IDLE, irProgress = 0f) }
+        _state.update { it.copy(irPhase = IrPhase.IDLE, irProgress = 0f, irRepNow = 0) }
+    }
+
+    /** Frequency response of the (averaged) IR as CSV. Null before a result. */
+    fun buildIrCsv(): String? {
+        val res = _state.value.irResult ?: return null
+        if (irMagBins == 0) return null
+        val s = _state.value
+        fun ms(v: Double) = if (v.isNaN()) "n/a" else "%.1f".format(v * 1000)
+        return buildString {
+            appendLine("# AudioAnalyzer impulse-response measurement")
+            appendLine("# exported: ${timestamp()}")
+            appendLine("# sweep: log ${s.irSweepF1.toInt()}-${s.irSweepF2.toInt()} Hz, " +
+                "${s.irSweepDurSec} s, level ${s.genLevelDb} dBFS")
+            appendLine("# averages: ${res.avgCount}, drift_ppm: %.1f".format(res.driftPpm))
+            appendLine("# rt60_t20_ms: ${ms(res.t20Sec)}, rt60_t30_ms: ${ms(res.t30Sec)}, " +
+                "edt_ms: ${ms(res.edtSec)}")
+            appendLine("# c50_db: %.1f, c80_db: %.1f".format(res.c50Db, res.c80Db))
+            appendLine("# sync_quality: %.2f / %.2f".format(res.preambleQuality, res.postambleQuality))
+            appendLine("# magnitude is uncalibrated relative dB (windowed IR)")
+            appendLine("freq_hz,mag_db,group_delay_ms")
+            for (i in 0 until irMagBins) {
+                appendLine("%.3f,%.2f,%.3f".format(i * res.magBinHz, irMagDb[i], irGdMs[i]))
+            }
+        }
     }
 
     // --- Calibration ---
